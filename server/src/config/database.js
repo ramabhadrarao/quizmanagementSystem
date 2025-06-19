@@ -1,6 +1,6 @@
 export const databaseConfig = {
   mongodb: {
-    uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/quiz-system',
+    uri: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/quiz-system',
     options: {
       useNewUrlParser: true,
       useUnifiedTopology: true,

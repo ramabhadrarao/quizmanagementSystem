@@ -54,9 +54,14 @@ export const useQuizStore = create<QuizState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const response = await api.get('/quizzes');
-      set({ quizzes: response.data, loading: false });
+      // Handle both array response and object with quizzes property
+      const quizData = response.data.quizzes || response.data;
+      // Ensure quizzes is always an array
+      const quizzes = Array.isArray(quizData) ? quizData : [];
+      set({ quizzes, loading: false });
     } catch (error) {
-      set({ error: 'Failed to fetch quizzes', loading: false });
+      console.error('Failed to fetch quizzes:', error);
+      set({ error: 'Failed to fetch quizzes', loading: false, quizzes: [] });
     }
   },
 
@@ -66,6 +71,7 @@ export const useQuizStore = create<QuizState>((set, get) => ({
       const response = await api.get(`/quizzes/${id}`);
       set({ currentQuiz: response.data, loading: false });
     } catch (error) {
+      console.error('Failed to fetch quiz:', error);
       set({ error: 'Failed to fetch quiz', loading: false });
     }
   },
@@ -80,7 +86,9 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         loading: false,
       }));
     } catch (error) {
+      console.error('Failed to create quiz:', error);
       set({ error: 'Failed to create quiz', loading: false });
+      throw error;
     }
   },
 
@@ -95,7 +103,9 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         loading: false,
       }));
     } catch (error) {
+      console.error('Failed to update quiz:', error);
       set({ error: 'Failed to update quiz', loading: false });
+      throw error;
     }
   },
 
@@ -108,7 +118,9 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         loading: false,
       }));
     } catch (error) {
+      console.error('Failed to delete quiz:', error);
       set({ error: 'Failed to delete quiz', loading: false });
+      throw error;
     }
   },
 

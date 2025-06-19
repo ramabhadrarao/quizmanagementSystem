@@ -5,7 +5,9 @@ import katex from 'katex';
 import 'katex/dist/katex.min.css';
 
 // Configure KaTeX for math rendering
-(window as any).katex = katex;
+if (typeof window !== 'undefined') {
+  (window as any).katex = katex;
+}
 
 interface RichTextEditorProps {
   value: string;
@@ -47,19 +49,15 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   ];
 
   return (
-    <div className="rich-text-editor">
-      <ReactQuill
-        theme="snow"
-        value={value}
-        onChange={onChange}
-        modules={modules}
-        formats={formats}
-        placeholder={placeholder}
-        style={{ height }}
-      />
-      <style jsx global>{`
+    <div 
+      className="rich-text-editor"
+      style={{
+        '--editor-height': height
+      } as React.CSSProperties}
+    >
+      <style>{`
         .rich-text-editor .ql-editor {
-          min-height: ${height};
+          min-height: var(--editor-height);
           font-family: 'Inter', sans-serif;
         }
         
@@ -89,6 +87,15 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
           margin: 0 0.125rem;
         }
       `}</style>
+      <ReactQuill
+        theme="snow"
+        value={value}
+        onChange={onChange}
+        modules={modules}
+        formats={formats}
+        placeholder={placeholder}
+        style={{ height }}
+      />
     </div>
   );
 };

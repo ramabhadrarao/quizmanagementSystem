@@ -41,19 +41,109 @@ const QuizEditor: React.FC = () => {
     }
   }, [currentQuiz]);
 
-  const handleSave = async (publish = false) => {
+  const validateQuiz = () => {
     if (!quiz.title.trim()) {
       toast.error('Quiz title is required');
-      return;
+      return false;
+    }
+
+    if (!quiz.description.trim()) {
+      toast.error('Quiz description is required');
+      return false;
     }
 
     if (quiz.questions.length === 0) {
       toast.error('At least one question is required');
+      return false;
+    }
+
+    // Validate each question
+    for (let i = 0; i < quiz.questions.length; i++) {
+      const question = quiz.questions[i];
+      
+      if (!question.title.trim()) {
+        toast.error(`Question ${i + 1}: Title is required`);
+        return false;
+      }
+
+      if (!question.content.trim()) {
+        toast.error(`Question ${i + 1}: Content is required`);
+        return false;
+      }
+
+      if (question.type === 'multiple-choice') {
+        if (!question.options || question.options.length < 2) {
+          toast.error(`Question ${i + 1}: At least 2 options are required`);
+          return false;
+        }
+
+        const nonEmptyOptions = question.options.filter(opt => opt.trim());
+        if (nonEmptyOptions.length < 2) {
+          toast.error(`Question ${i + 1}: Options cannot be empty`);
+          return false;
+        }
+
+        if (question.correctAnswer === undefined || question.correctAnswer === null || question.correctAnswer < 0) {
+          toast.error(`Question ${i + 1}: Please select the correct answer`);
+          return false;
+        }
+      } else if (question.type === 'code') {
+        if (!question.language) {
+          toast.error(`Question ${i + 1}: Programming language is required`);
+          return false;
+        }
+
+        if (!question.testCases || question.testCases.length === 0) {
+          toast.error(`Question ${i + 1}: At least one test case is required`);
+          return false;
+        }
+
+        for (let j = 0; j < question.testCases.length; j++) {
+          const testCase = question.testCases[j];
+          if (testCase.expectedOutput.trim() === '') {
+            toast.error(`Question ${i + 1}, Test Case ${j + 1}: Expected output is required`);
+            return false;
+          }
+        }
+      }
+    }
+
+    return true;
+  };
+
+  const handleSave = async (publish = false) => {
+    if (!validateQuiz()) {
       return;
     }
 
     try {
-      const quizData = { ...quiz, isPublished: publish };
+      // Prepare quiz data with proper format
+      const quizData = {
+        title: quiz.title.trim(),
+        description: quiz.description.trim(),
+        timeLimit: quiz.timeLimit,
+        isPublished: publish,
+        questions: quiz.questions.map(q => ({
+          type: q.type,
+          title: q.title.trim(),
+          content: q.content.trim(),
+          points: q.points || 1,
+          ...(q.type === 'multiple-choice' 
+            ? { 
+                options: q.options?.map(opt => opt.trim()) || [],
+                correctAnswer: Number(q.correctAnswer)
+              }
+            : { 
+                language: q.language,
+                testCases: q.testCases?.map(tc => ({
+                  input: tc.input || '',
+                  expectedOutput: tc.expectedOutput.trim(),
+                  isHidden: tc.isHidden || false
+                })) || []
+              }
+          ),
+        })),
+      };
       
       if (id) {
         await updateQuiz(id, quizData);
@@ -63,8 +153,10 @@ const QuizEditor: React.FC = () => {
         toast.success('Quiz created successfully');
         navigate('/quizzes');
       }
-    } catch (error) {
-      toast.error('Failed to save quiz');
+    } catch (error: any) {
+      console.error('Save error:', error);
+      const errorMessage = error.response?.data?.details || error.response?.data?.message || 'Failed to save quiz';
+      toast.error(errorMessage);
     }
   };
 
@@ -77,7 +169,7 @@ const QuizEditor: React.FC = () => {
       points: 1,
       ...(type === 'multiple-choice' 
         ? { options: ['', '', '', ''], correctAnswer: 0 }
-        : { language: 'javascript', testCases: [{ input: '', expectedOutput: '' }] }
+        : { language: 'javascript', testCases: [{ input: '', expectedOutput: '', isHidden: false }] }
       ),
     };
 
@@ -448,7 +540,7 @@ const QuestionEditor: React.FC<QuestionEditorProps> = ({
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    const newTestCases = [...(question.testCases || []), { input: '', expectedOutput: '' }];
+                    const newTestCases = [...(question.testCases || []), { input: '', expectedOutput: '', isHidden: false }];
                     onUpdate({ testCases: newTestCases });
                   }}
                 >

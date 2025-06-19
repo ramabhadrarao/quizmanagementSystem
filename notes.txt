@@ -1,0 +1,8 @@
+Default login credentials:
+-------------------------
+admin      | Email: admin@quizmaster.pro           | Password: Admin@123
+instructor | Email: instructor@quizmaster.pro      | Password: Instructor@123
+student    | Email: student@quizmaster.pro         | Password: Student@123
+instructor | Email: sarah.teacher@quizmaster.pro   | Password: Teacher@123
+student    | Email: mike.learner@quizmaster.pro    | Password: Learner@123
+student    | Email: emily.scholar@quizmaster.pro   | Password: Scholar@123
