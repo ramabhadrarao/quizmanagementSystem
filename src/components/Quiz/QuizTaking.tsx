@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Clock, CheckCircle, AlertCircle, Code, FileText, ArrowLeft, ArrowRight } from 'lucide-react';
 import { useQuizStore, Question } from '../../stores/quizStore';
 import Button from '../UI/Button';
-import RichTextEditor from './RichTextEditor';
 import CodeEditor from './CodeEditor';
 import { toast } from '../UI/Toaster';
 import api from '../../services/api';
@@ -25,10 +24,15 @@ const QuizTaking: React.FC = () => {
   const [timeLeft, setTimeLeft] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [quizStarted, setQuizStarted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (id) {
-      fetchQuiz(id);
+      console.log('Fetching quiz with ID:', id);
+      fetchQuiz(id).catch(err => {
+        console.error('Error fetching quiz:', err);
+        setError('Failed to load quiz. Please try again.');
+      });
     }
   }, [id, fetchQuiz]);
 
@@ -48,20 +52,25 @@ const QuizTaking: React.FC = () => {
   }, [timeLeft, quizStarted]);
 
   const startQuiz = () => {
-    setQuizStarted(true);
-    // Initialize answers
-    if (currentQuiz) {
-      const initialAnswers: Answer[] = currentQuiz.questions.map((question) => ({
-        questionId: question.id,
-        type: question.type,
-        answer: question.type === 'multiple-choice' ? -1 : '',
-        code: question.type === 'code' ? '' : undefined,
-      }));
-      setAnswers(initialAnswers);
+    if (!currentQuiz) {
+      toast.error('Quiz data not loaded');
+      return;
     }
+
+    setQuizStarted(true);
+    // Initialize answers with proper question IDs
+    const initialAnswers: Answer[] = currentQuiz.questions.map((question, index) => ({
+      questionId: question._id || question.id || index.toString(),
+      type: question.type,
+      answer: question.type === 'multiple-choice' ? -1 : '',
+      code: question.type === 'code' ? '' : undefined,
+    }));
+    setAnswers(initialAnswers);
+    console.log('Quiz started with answers:', initialAnswers);
   };
 
   const updateAnswer = (questionId: string, answer: string | number, code?: string) => {
+    console.log('Updating answer:', { questionId, answer, code });
     setAnswers(prev => 
       prev.map(a => 
         a.questionId === questionId 
@@ -77,17 +86,21 @@ const QuizTaking: React.FC = () => {
     setIsSubmitting(true);
     try {
       const submission = {
-        quizId: currentQuiz.id,
-        answers,
+        quizId: currentQuiz._id || currentQuiz.id,
+        answers: answers.map(a => ({
+          ...a,
+          answer: a.type === 'code' ? (a.code || '') : a.answer
+        })),
         completedAt: new Date().toISOString(),
       };
 
+      console.log('Submitting quiz:', submission);
       await api.post('/submissions', submission);
       toast.success('Quiz submitted successfully!');
       navigate('/dashboard');
-    } catch (error) {
-      toast.error('Failed to submit quiz');
+    } catch (error: any) {
       console.error('Submission error:', error);
+      toast.error(error.response?.data?.message || 'Failed to submit quiz');
     } finally {
       setIsSubmitting(false);
     }
@@ -113,16 +126,25 @@ const QuizTaking: React.FC = () => {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading quiz...</p>
+        </div>
       </div>
     );
   }
 
-  if (!currentQuiz) {
+  if (error || !currentQuiz) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Quiz Not Found</h2>
+          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">
+            {error || 'Quiz Not Found'}
+          </h2>
+          <p className="text-gray-600 mb-4">
+            {error || 'The quiz you are looking for does not exist or has been removed.'}
+          </p>
           <Button onClick={() => navigate('/quizzes')}>
             Back to Quizzes
           </Button>
@@ -152,7 +174,7 @@ const QuizTaking: React.FC = () => {
               <div className="bg-blue-50 rounded-lg p-4">
                 <FileText className="w-6 h-6 text-blue-600 mx-auto mb-2" />
                 <div className="text-2xl font-bold text-blue-900 mb-1">
-                  {currentQuiz.questions.length}
+                  {currentQuiz.questions?.length || 0}
                 </div>
                 <div className="text-sm text-blue-700">Questions</div>
               </div>
@@ -168,7 +190,7 @@ const QuizTaking: React.FC = () => {
               <div className="bg-green-50 rounded-lg p-4">
                 <CheckCircle className="w-6 h-6 text-green-600 mx-auto mb-2" />
                 <div className="text-2xl font-bold text-green-900 mb-1">
-                  {currentQuiz.questions.reduce((sum, q) => sum + q.points, 0)}
+                  {currentQuiz.questions?.reduce((sum, q) => sum + (q.points || 0), 0) || 0}
                 </div>
                 <div className="text-sm text-green-700">Points</div>
               </div>
@@ -203,7 +225,21 @@ const QuizTaking: React.FC = () => {
   }
 
   const currentQuestion = currentQuiz.questions[currentQuestionIndex];
-  const currentAnswer = answers.find(a => a.questionId === currentQuestion.id);
+  const currentAnswer = answers.find(a => a.questionId === (currentQuestion._id || currentQuestion.id || currentQuestionIndex.toString()));
+
+  if (!currentQuestion) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">Error Loading Question</h2>
+          <Button onClick={() => navigate('/quizzes')}>
+            Back to Quizzes
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -262,29 +298,32 @@ const QuizTaking: React.FC = () => {
           <div className="bg-white/80 backdrop-blur-lg rounded-xl shadow-lg border border-white/20 p-6 sticky top-24">
             <h3 className="font-semibold text-gray-900 mb-4">Questions</h3>
             <div className="grid grid-cols-5 lg:grid-cols-1 gap-2">
-              {currentQuiz.questions.map((question, index) => (
-                <button
-                  key={question.id}
-                  onClick={() => setCurrentQuestionIndex(index)}
-                  className={`p-3 rounded-lg text-sm font-medium transition-colors ${
-                    index === currentQuestionIndex
-                      ? 'bg-blue-600 text-white'
-                      : isAnswered(question.id)
-                      ? 'bg-green-100 text-green-800 hover:bg-green-200'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  <div className="flex items-center justify-center gap-1">
-                    {question.type === 'code' ? (
-                      <Code className="w-3 h-3" />
-                    ) : (
-                      <FileText className="w-3 h-3" />
-                    )}
-                    <span className="hidden lg:inline">Q{index + 1}</span>
-                    <span className="lg:hidden">{index + 1}</span>
-                  </div>
-                </button>
-              ))}
+              {currentQuiz.questions.map((question, index) => {
+                const qId = question._id || question.id || index.toString();
+                return (
+                  <button
+                    key={qId}
+                    onClick={() => setCurrentQuestionIndex(index)}
+                    className={`p-3 rounded-lg text-sm font-medium transition-colors ${
+                      index === currentQuestionIndex
+                        ? 'bg-blue-600 text-white'
+                        : isAnswered(qId)
+                        ? 'bg-green-100 text-green-800 hover:bg-green-200'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-center gap-1">
+                      {question.type === 'code' ? (
+                        <Code className="w-3 h-3" />
+                      ) : (
+                        <FileText className="w-3 h-3" />
+                      )}
+                      <span className="hidden lg:inline">Q{index + 1}</span>
+                      <span className="lg:hidden">{index + 1}</span>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -328,13 +367,16 @@ const QuizTaking: React.FC = () => {
                   >
                     <input
                       type="radio"
-                      name={`question-${currentQuestion.id}`}
+                      name={`question-${currentQuestion._id || currentQuestion.id}`}
                       value={index}
                       checked={currentAnswer?.answer === index}
-                      onChange={() => updateAnswer(currentQuestion.id, index)}
+                      onChange={() => updateAnswer(
+                        currentQuestion._id || currentQuestion.id || currentQuestionIndex.toString(), 
+                        index
+                      )}
                       className="w-4 h-4 text-blue-600 focus:ring-blue-500"
                     />
-                    <span className="flex-1" dangerouslySetInnerHTML={{ __html: option }} />
+                    <span className="flex-1">{option}</span>
                   </label>
                 ))}
               </div>
@@ -347,7 +389,11 @@ const QuizTaking: React.FC = () => {
                 </div>
                 <CodeEditor
                   value={currentAnswer?.code || ''}
-                  onChange={(code) => updateAnswer(currentQuestion.id, code, code)}
+                  onChange={(code) => updateAnswer(
+                    currentQuestion._id || currentQuestion.id || currentQuestionIndex.toString(), 
+                    code, 
+                    code
+                  )}
                   language={currentQuestion.language || 'javascript'}
                   height="400px"
                 />
@@ -366,7 +412,7 @@ const QuizTaking: React.FC = () => {
               </Button>
               
               <div className="text-sm text-gray-600">
-                {isAnswered(currentQuestion.id) ? (
+                {isAnswered(currentQuestion._id || currentQuestion.id || currentQuestionIndex.toString()) ? (
                   <span className="flex items-center gap-1 text-green-600">
                     <CheckCircle className="w-4 h-4" />
                     Answered
