@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:6.0
+    container_name: quiz-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: quiz-system
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - quiz-network
+
+  server:
+    build: ./server
+    container_name: quiz-server
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      MONGODB_URI: mongodb://admin:password123@mongodb:27017/quiz-system?authSource=admin
+      JWT_SECRET: your-super-secret-jwt-key-here
+      PORT: 3001
+    depends_on:
+      - mongodb
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - quiz-network
+
+volumes:
+  mongodb_data:
+
+networks:
+  quiz-network:
+    driver: bridge
