@@ -1,3 +1,4 @@
+// server/src/middleware/auth.js - Enhanced with better error handling
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
@@ -9,11 +10,11 @@ export const requireAuth = async (req, res, next) => {
       return res.status(401).json({ message: 'Access token required' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'quiz-master-pro-super-secret-key-2024');
     
     const user = await User.findById(decoded.userId);
     if (!user || !user.isActive) {
-      return res.status(401).json({ message: 'Invalid token' });
+      return res.status(401).json({ message: 'Invalid token - user not found or inactive' });
     }
 
     req.user = {
@@ -25,8 +26,18 @@ export const requireAuth = async (req, res, next) => {
 
     next();
   } catch (error) {
-    console.error('Auth middleware error:', error);
-    res.status(401).json({ message: 'Invalid token' });
+    console.error('Auth middleware error:', error.name, error.message);
+    
+    // Handle different JWT errors
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ message: 'Invalid token signature' });
+    } else if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ message: 'Token expired' });
+    } else if (error.name === 'NotBeforeError') {
+      return res.status(401).json({ message: 'Token not active' });
+    }
+    
+    res.status(401).json({ message: 'Authentication failed' });
   }
 };
 

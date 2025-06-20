@@ -1,3 +1,4 @@
+// src/stores/authStore.ts - Enhanced with token cleanup
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import api from '../services/api';
@@ -17,6 +18,7 @@ interface AuthState {
   register: (userData: { name: string; email: string; password: string; role: string }) => Promise<void>;
   logout: () => void;
   setAuth: (user: User, token: string) => void;
+  clearAuthErrors: () => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -31,6 +33,7 @@ export const useAuthStore = create<AuthState>()(
           const response = await api.post('/auth/login', { email, password });
           const { user, token } = response.data;
           
+          // Set authorization header for future requests
           api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
           
           set({
@@ -38,7 +41,9 @@ export const useAuthStore = create<AuthState>()(
             token,
             isAuthenticated: true,
           });
-        } catch (error) {
+        } catch (error: any) {
+          // Clear any existing auth data on login failure
+          get().logout();
           throw error;
         }
       },
@@ -55,13 +60,20 @@ export const useAuthStore = create<AuthState>()(
             token,
             isAuthenticated: true,
           });
-        } catch (error) {
+        } catch (error: any) {
+          // Clear any existing auth data on register failure
+          get().logout();
           throw error;
         }
       },
 
       logout: () => {
+        // Clear authorization header
         delete api.defaults.headers.common['Authorization'];
+        
+        // Clear localStorage/zustand store
+        localStorage.removeItem('auth-storage');
+        
         set({
           user: null,
           token: null,
@@ -77,12 +89,28 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: true,
         });
       },
+
+      clearAuthErrors: () => {
+        // Method to clear auth errors and reset state
+        get().logout();
+      },
     }),
     {
       name: 'auth-storage',
       onRehydrateStorage: () => (state) => {
         if (state?.token) {
+          // Validate token on app startup
           api.defaults.headers.common['Authorization'] = `Bearer ${state.token}`;
+          
+          // Test token validity
+          api.get('/auth/me')
+            .then((response) => {
+              console.log('✅ Token validated successfully');
+            })
+            .catch((error) => {
+              console.warn('⚠️ Stored token is invalid, clearing auth state');
+              state.logout();
+            });
         }
       },
     }

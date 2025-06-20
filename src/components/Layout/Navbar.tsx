@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { BookOpen, Home, FileText, Plus, LogOut, User } from 'lucide-react';
+import { BookOpen, Home, FileText, Plus, LogOut, User, Settings } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import Button from '../UI/Button';
 
@@ -12,6 +12,11 @@ const Navbar: React.FC = () => {
     { path: '/dashboard', label: 'Dashboard', icon: Home },
     { path: '/quizzes', label: 'Quizzes', icon: FileText },
   ];
+
+  // Add admin route for admin users
+  if (user?.role === 'admin') {
+    navItems.push({ path: '/admin', label: 'Admin', icon: Settings });
+  }
 
   const isActive = (path: string) => location.pathname === path;
 

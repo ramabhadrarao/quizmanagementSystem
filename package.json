@@ -5,13 +5,18 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
+    "dev:all": "concurrently \"npm run dev:client\" \"npm run dev:server\" \"npm run dev:code-execution\"",
     "dev:client": "vite",
     "dev:server": "cd server && npm run dev",
+    "dev:code-execution": "cd server && node src/services/codeExecutionService.js",
     "build": "vite build",
     "build:server": "cd server && npm run build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "postinstall": "cd server && npm install"
+    "postinstall": "cd server && npm install",
+    "seed": "cd server && npm run seed",
+    "start:code-service": "cd server && node src/services/codeExecutionService.js",
+    "cleanup": "cd server && node src/scripts/cleanup.js"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",

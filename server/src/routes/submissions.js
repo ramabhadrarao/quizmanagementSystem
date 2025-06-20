@@ -1,13 +1,76 @@
-// server/src/routes/submissions.js - Enhanced with auto-save and resume
+// server/src/routes/submissions.js - Additional missing routes
 import express from 'express';
 import Submission from '../models/Submission.js';
 import Quiz from '../models/Quiz.js';
-import { requireAuth } from '../middleware/auth.js';
-import { executeCode } from '../services/codeExecution.js';
+import { requireAuth, requireRole } from '../middleware/auth.js';
+import { queueSubmissionForGrading } from '../services/submissionQueue.js';
 
 const router = express.Router();
 
-// Start or resume a quiz attempt
+// Get quiz statistics (admin/instructor only)
+router.get('/quiz/:quizId/stats', requireAuth, requireRole(['admin', 'instructor']), async (req, res) => {
+  try {
+    const { quizId } = req.params;
+    
+    const stats = await Submission.getSubmissionStats(quizId);
+    res.json(stats);
+  } catch (error) {
+    console.error('Error fetching quiz stats:', error);
+    res.status(500).json({ message: 'Error fetching quiz statistics' });
+  }
+});
+
+// Export quiz submissions to CSV (admin/instructor only)
+router.get('/quiz/:quizId/export', requireAuth, requireRole(['admin', 'instructor']), async (req, res) => {
+  try {
+    const { quizId } = req.params;
+    
+    const submissions = await Submission.find({
+      quiz: quizId,
+      status: 'completed'
+    })
+    .populate('user', 'name email')
+    .populate('quiz', 'title')
+    .sort({ completedAt: -1 });
+
+    // Generate CSV data
+    const csvHeaders = [
+      'Student Name',
+      'Email',
+      'Total Score',
+      'Max Score',
+      'Percentage',
+      'Time Spent (minutes)',
+      'Completed At',
+      'Attempt Number'
+    ];
+
+    const csvRows = submissions.map(sub => [
+      sub.user.name,
+      sub.user.email,
+      sub.totalScore,
+      sub.maxScore,
+      sub.percentage,
+      Math.round((sub.timeSpent || 0) / 60),
+      new Date(sub.completedAt).toLocaleString(),
+      sub.submissionAttempt || 1
+    ]);
+
+    const csvContent = [
+      csvHeaders.join(','),
+      ...csvRows.map(row => row.map(field => `"${field}"`).join(','))
+    ].join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="quiz-${quizId}-results.csv"`);
+    res.send(csvContent);
+  } catch (error) {
+    console.error('Error exporting submissions:', error);
+    res.status(500).json({ message: 'Error exporting submissions' });
+  }
+});
+
+// Start or resume a quiz attempt (enhanced)
 router.post('/start', requireAuth, async (req, res) => {
   try {
     const { quizId } = req.body;
@@ -31,8 +94,14 @@ router.post('/start', requireAuth, async (req, res) => {
     let submission = await Submission.findOne({
       quiz: quizId,
       user: req.user.userId,
-      isCompleted: false,
+      status: { $in: ['in_progress', 'submitted', 'processing'] },
     });
+
+    if (submission && submission.status !== 'in_progress') {
+      return res.status(400).json({ 
+        message: 'You have already submitted this quiz and it is being processed or completed' 
+      });
+    }
 
     if (submission) {
       console.log('🔍 Found existing in-progress submission');
@@ -53,7 +122,7 @@ router.post('/start', requireAuth, async (req, res) => {
     const completedSubmission = await Submission.findOne({
       quiz: quizId,
       user: req.user.userId,
-      isCompleted: true,
+      status: 'completed',
     });
 
     if (completedSubmission && quiz.allowedAttempts === 1) {
@@ -77,7 +146,7 @@ router.post('/start', requireAuth, async (req, res) => {
       totalScore: 0,
       maxScore,
       timeSpent: 0,
-      isCompleted: false,
+      status: 'in_progress',
     });
 
     await submission.save();
@@ -99,7 +168,7 @@ router.post('/start', requireAuth, async (req, res) => {
   }
 });
 
-// Auto-save answer (called immediately when user answers)
+// Auto-save answer (enhanced)
 router.post('/save-answer', requireAuth, async (req, res) => {
   try {
     const { submissionId, questionId, answer, code, timeSpent } = req.body;
@@ -119,7 +188,7 @@ router.post('/save-answer', requireAuth, async (req, res) => {
     const submission = await Submission.findOne({
       _id: submissionId,
       user: req.user.userId,
-      isCompleted: false,
+      status: 'in_progress',
     });
 
     if (!submission) {
@@ -138,11 +207,15 @@ router.post('/save-answer', requireAuth, async (req, res) => {
     if (code !== undefined) {
       submission.answers[answerIndex].code = code;
     }
+    submission.answers[answerIndex].lastSaved = new Date();
     
     // Update time spent
     if (timeSpent !== undefined) {
       submission.timeSpent = timeSpent;
     }
+
+    // Add time tracking
+    submission.addTimeTracking('auto_save', submission.timeSpent);
 
     // Mark as modified for mongoose
     submission.markModified('answers');
@@ -161,7 +234,7 @@ router.post('/save-answer', requireAuth, async (req, res) => {
   }
 });
 
-// Submit quiz (final submission with grading)
+// Submit quiz (enhanced with queue integration)
 router.post('/submit', requireAuth, async (req, res) => {
   try {
     const { submissionId, timeSpent, forceSubmit } = req.body;
@@ -181,316 +254,42 @@ router.post('/submit', requireAuth, async (req, res) => {
       return res.status(404).json({ message: 'Submission not found' });
     }
 
-    if (submission.isCompleted && !forceSubmit) {
+    if (submission.status === 'completed' && !forceSubmit) {
       return res.status(400).json({ message: 'Quiz already submitted' });
     }
 
-    const quiz = submission.quiz;
-    console.log('🔍 Processing submission for quiz:', quiz.title);
-
-    // Process answers and calculate scores
-    let totalScore = 0;
-    const processedAnswers = [];
-
-    for (let i = 0; i < submission.answers.length; i++) {
-      const answer = submission.answers[i];
-      const question = quiz.questions.find(q => q._id.toString() === answer.questionId);
-      
-      if (!question) {
-        console.warn('🔍 Question not found for answer:', answer.questionId);
-        continue;
-      }
-
-      let score = 0;
-      let isCorrect = false;
-      let executionResult = null;
-
-      if (question.type === 'multiple-choice') {
-        isCorrect = question.correctAnswer === answer.answer;
-        score = isCorrect ? question.points : 0;
-      } else if (question.type === 'code') {
-        // Execute code and check test cases
-        try {
-          if (answer.code && answer.code.trim()) {
-            console.log('🔍 Executing code for question:', question.title);
-            executionResult = await executeCode(
-              answer.code,
-              question.language,
-              question.testCases || []
-            );
-            
-            if (executionResult.testResults && executionResult.testResults.length > 0) {
-              const passedTests = executionResult.testResults.filter(t => t.passed).length;
-              const totalTests = executionResult.testResults.length;
-              
-              if (totalTests > 0) {
-                score = Math.round((passedTests / totalTests) * question.points);
-                isCorrect = passedTests === totalTests;
-              }
-            }
-          }
-        } catch (error) {
-          console.error('🔍 Code execution error for question:', question.title, error);
-          executionResult = {
-            error: 'Code execution failed: ' + error.message,
-            testResults: [],
-          };
-        }
-      }
-
-      totalScore += score;
-
-      processedAnswers.push({
-        questionId: answer.questionId,
-        type: question.type,
-        answer: answer.answer,
-        code: answer.code,
-        isCorrect,
-        score,
-        executionResult,
-      });
+    if (submission.status === 'processing') {
+      return res.status(400).json({ message: 'Quiz is already being processed' });
     }
 
-    // Update submission with final results
-    submission.answers = processedAnswers;
-    submission.totalScore = totalScore;
+    // Update submission with final time and status
     submission.timeSpent = timeSpent || submission.timeSpent || 0;
-    submission.completedAt = new Date();
-    submission.isCompleted = true;
+    submission.status = 'submitted';
+    submission.addTimeTracking('submit', submission.timeSpent);
 
     await submission.save();
 
-    console.log('🔍 Quiz submitted successfully:', {
+    // Queue for processing
+    const jobId = await queueSubmissionForGrading(submission._id.toString());
+    submission.queueJobId = jobId;
+    await submission.save();
+
+    console.log('🔍 Quiz submitted and queued for processing:', {
       submissionId: submission._id,
-      totalScore,
-      maxScore: submission.maxScore,
-      percentage: submission.percentage
+      jobId
     });
 
     res.json({
       message: 'Quiz submitted successfully',
       submission: {
         id: submission._id,
-        totalScore,
-        maxScore: submission.maxScore,
-        percentage: submission.percentage,
-        completedAt: submission.completedAt,
-        answers: processedAnswers,
+        status: submission.status,
+        timeSpent: submission.timeSpent,
+        queueJobId: jobId,
       },
     });
   } catch (error) {
     console.error('🔍 Error submitting quiz:', error);
-    res.status(500).json({ message: 'Error submitting quiz' });
-  }
-});
-
-// Get current submission status
-router.get('/status/:quizId', requireAuth, async (req, res) => {
-  try {
-    const { quizId } = req.params;
-    
-    console.log('🔍 Getting submission status:', { quizId, userId: req.user.userId });
-    
-    // Look for in-progress submission
-    const inProgressSubmission = await Submission.findOne({
-      quiz: quizId,
-      user: req.user.userId,
-      isCompleted: false,
-    });
-
-    if (inProgressSubmission) {
-      return res.json({
-        hasInProgress: true,
-        submission: {
-          id: inProgressSubmission._id,
-          startedAt: inProgressSubmission.startedAt,
-          timeSpent: inProgressSubmission.timeSpent || 0,
-          answers: inProgressSubmission.answers,
-        },
-      });
-    }
-
-    // Check for completed submissions
-    const completedSubmissions = await Submission.find({
-      quiz: quizId,
-      user: req.user.userId,
-      isCompleted: true,
-    }).sort({ completedAt: -1 });
-
-    res.json({
-      hasInProgress: false,
-      completedAttempts: completedSubmissions.length,
-      lastAttempt: completedSubmissions[0] || null,
-    });
-  } catch (error) {
-    console.error('🔍 Error getting submission status:', error);
-    res.status(500).json({ message: 'Error getting submission status' });
-  }
-});
-
-// Get user submissions (existing route - keep as is)
-router.get('/my', requireAuth, async (req, res) => {
-  try {
-    const submissions = await Submission.find({
-      user: req.user.userId,
-      isCompleted: true,
-    })
-      .populate('quiz', 'title description timeLimit')
-      .sort({ completedAt: -1 });
-
-    res.json(submissions.map(sub => ({
-      id: sub._id,
-      quiz: {
-        id: sub.quiz._id,
-        title: sub.quiz.title,
-        description: sub.quiz.description,
-      },
-      totalScore: sub.totalScore,
-      maxScore: sub.maxScore,
-      percentage: sub.percentage,
-      completedAt: sub.completedAt,
-    })));
-  } catch (error) {
-    console.error('🔍 Error fetching submissions:', error);
-    res.status(500).json({ message: 'Error fetching submissions' });
-  }
-});
-
-// Get submission details (existing route - keep as is)
-router.get('/:id', requireAuth, async (req, res) => {
-  try {
-    const submission = await Submission.findById(req.params.id)
-      .populate('quiz')
-      .populate('user', 'name email');
-
-    if (!submission) {
-      return res.status(404).json({ message: 'Submission not found' });
-    }
-
-    // Check permissions
-    if (req.user.role === 'student' && submission.user._id.toString() !== req.user.userId) {
-      return res.status(403).json({ message: 'Access denied' });
-    }
-
-    res.json(submission);
-  } catch (error) {
-    console.error('🔍 Error fetching submission:', error);
-    res.status(500).json({ message: 'Error fetching submission' });
-  }
-});
-
-// Legacy route (for backward compatibility) - convert to new system
-router.post('/', requireAuth, async (req, res) => {
-  try {
-    console.log('🔍 Legacy submission route called - redirecting to new system');
-    
-    const { quizId, answers } = req.body;
-    
-    if (!quizId || !answers) {
-      return res.status(400).json({ 
-        message: 'Please use the new submission system. Start quiz first with /start endpoint.' 
-      });
-    }
-
-    // For backward compatibility, create and submit in one go
-    const quiz = await Quiz.findById(quizId);
-    if (!quiz) {
-      return res.status(404).json({ message: 'Quiz not found' });
-    }
-
-    // Check for existing completed submission
-    const existingSubmission = await Submission.findOne({
-      quiz: quizId,
-      user: req.user.userId,
-      isCompleted: true,
-    });
-
-    if (existingSubmission && quiz.allowedAttempts === 1) {
-      return res.status(400).json({ message: 'You have already submitted this quiz' });
-    }
-
-    // Create and process submission immediately
-    const maxScore = quiz.questions.reduce((sum, q) => sum + (q.points || 1), 0);
-    let totalScore = 0;
-    const processedAnswers = [];
-
-    for (const answer of answers) {
-      const question = quiz.questions.find(q => q._id.toString() === answer.questionId);
-      if (!question) continue;
-
-      let score = 0;
-      let isCorrect = false;
-      let executionResult = null;
-
-      if (question.type === 'multiple-choice') {
-        isCorrect = question.correctAnswer === answer.answer;
-        score = isCorrect ? question.points : 0;
-      } else if (question.type === 'code') {
-        try {
-          if (answer.code && answer.code.trim()) {
-            executionResult = await executeCode(
-              answer.code,
-              question.language,
-              question.testCases || []
-            );
-            
-            if (executionResult.testResults && executionResult.testResults.length > 0) {
-              const passedTests = executionResult.testResults.filter(t => t.passed).length;
-              const totalTests = executionResult.testResults.length;
-              
-              if (totalTests > 0) {
-                score = Math.round((passedTests / totalTests) * question.points);
-                isCorrect = passedTests === totalTests;
-              }
-            }
-          }
-        } catch (error) {
-          console.error('🔍 Code execution error:', error);
-          executionResult = {
-            error: 'Code execution failed',
-            testResults: [],
-          };
-        }
-      }
-
-      totalScore += score;
-
-      processedAnswers.push({
-        questionId: answer.questionId,
-        type: question.type,
-        answer: answer.answer,
-        code: answer.code,
-        isCorrect,
-        score,
-        executionResult,
-      });
-    }
-
-    // Create submission
-    const submission = new Submission({
-      quiz: quizId,
-      user: req.user.userId,
-      answers: processedAnswers,
-      totalScore,
-      maxScore,
-      completedAt: new Date(),
-      isCompleted: true,
-    });
-
-    await submission.save();
-
-    res.status(201).json({
-      message: 'Quiz submitted successfully',
-      submission: {
-        id: submission._id,
-        totalScore,
-        maxScore,
-        percentage: submission.percentage,
-        answers: processedAnswers,
-      },
-    });
-  } catch (error) {
-    console.error('🔍 Legacy submission error:', error);
     res.status(500).json({ message: 'Error submitting quiz' });
   }
 });

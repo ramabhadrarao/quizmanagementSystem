@@ -1,9 +1,11 @@
+// src/components/Quiz/QuizTaking.tsx - Updated with submission confirmation
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Clock, CheckCircle, AlertCircle, Code, FileText, ArrowLeft, ArrowRight, Save, Wifi, WifiOff } from 'lucide-react';
 import { useQuizStore, Question } from '../../stores/quizStore';
 import Button from '../UI/Button';
 import CodeEditor from './CodeEditor';
+import QuizSubmissionModal from './QuizSubmissionModal';
 import { toast } from '../UI/Toaster';
 import api from '../../services/api';
 
@@ -43,6 +45,7 @@ const QuizTaking: React.FC = () => {
   const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isResuming, setIsResuming] = useState(false);
+  const [showSubmissionModal, setShowSubmissionModal] = useState(false);
 
   // Refs for intervals and timers
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -97,7 +100,7 @@ const QuizTaking: React.FC = () => {
     
     autoSaveRef.current = setTimeout(() => {
       autoSave(questionId, answer, code);
-    }, 2000); // Auto-save 2 seconds after user stops typing
+    }, 2000);
   }, [autoSave]);
 
   // Check for existing submission on load
@@ -123,11 +126,8 @@ const QuizTaking: React.FC = () => {
               setTotalTimeSpent(status.submission.timeSpent);
               setAnswers(status.submission.answers);
               
-              // Calculate time left
               await fetchQuiz(id);
-              // Will be handled in the quiz loading effect
             } else {
-              // User chose not to resume - would need to handle this case
               toast.info('Starting a new attempt...');
             }
           }
@@ -167,7 +167,7 @@ const QuizTaking: React.FC = () => {
           const newTime = prev - 1;
           if (newTime <= 0) {
             console.log('🔍 Time expired, auto-submitting...');
-            handleSubmit(true); // Force submit
+            handleTimeExpiredSubmit();
             return 0;
           }
           return newTime;
@@ -243,7 +243,6 @@ const QuizTaking: React.FC = () => {
   const updateAnswer = (questionId: string, answer: string | number, code?: string) => {
     console.log('🔍 Updating answer:', { questionId, answer: typeof answer === 'string' ? answer.substring(0, 50) + '...' : answer });
     
-    // Update local state immediately
     setAnswers(prev => {
       const updated = prev.map(a => 
         a.questionId === questionId 
@@ -253,11 +252,26 @@ const QuizTaking: React.FC = () => {
       return updated;
     });
     
-    // Trigger auto-save
     debouncedAutoSave(questionId, answer, code);
   };
 
-  const handleSubmit = async (forceSubmit = false) => {
+  const handleSubmitClick = () => {
+    setShowSubmissionModal(true);
+  };
+
+  const handleTimeExpiredSubmit = async () => {
+    if (!submissionId) return;
+    
+    console.log('🔍 Time expired, force submitting...');
+    await performSubmission(true);
+  };
+
+  const handleConfirmSubmission = async () => {
+    setShowSubmissionModal(false);
+    await performSubmission(false);
+  };
+
+  const performSubmission = async (forceSubmit = false) => {
     if (!submissionId) {
       toast.error('No active submission found');
       return;
@@ -267,7 +281,6 @@ const QuizTaking: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      // Calculate final time spent
       const currentTimeSpent = totalTimeSpent + Math.floor((Date.now() - timeStartRef.current) / 1000);
       
       const response = await api.post('/submissions/submit', {
@@ -277,13 +290,30 @@ const QuizTaking: React.FC = () => {
       });
       
       console.log('🔍 Quiz submitted successfully:', response.data);
-      toast.success('Quiz submitted successfully!');
+      
+      if (forceSubmit) {
+        toast.success('Quiz auto-submitted due to time limit!');
+      } else {
+        toast.success('Quiz submitted successfully!');
+      }
       
       // Clear timers
       if (timerRef.current) clearTimeout(timerRef.current);
       if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
       
-      navigate('/dashboard');
+      // Navigate to result page or dashboard based on submission status
+      const submission = response.data.submission;
+      if (submission && submission.queueJobId) {
+        // Quiz is being processed, show processing page
+        navigate(`/quiz/result/${submissionId}`, { 
+          state: { 
+            processing: true, 
+            message: 'Your quiz is being graded. Results will be available shortly.' 
+          }
+        });
+      } else {
+        navigate('/dashboard');
+      }
     } catch (error: any) {
       console.error('🔍 Submission error:', error);
       
@@ -441,218 +471,231 @@ const QuizTaking: React.FC = () => {
   const currentAnswer = answers.find(a => a.questionId === questionId);
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Header */}
-      <div className="bg-white/80 backdrop-blur-lg rounded-xl shadow-lg border border-white/20 p-6 mb-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-1">
-              {currentQuiz.title}
-            </h1>
-            <p className="text-gray-600">
-              Question {currentQuestionIndex + 1} of {currentQuiz.questions.length}
-            </p>
-          </div>
-          
-          <div className="flex items-center gap-6">
-            {/* Connection Status */}
-            <div className="flex items-center gap-2">
-              {isOnline ? (
-                <Wifi className="w-4 h-4 text-green-600" />
-              ) : (
-                <WifiOff className="w-4 h-4 text-red-600" />
-              )}
-              <span className={`text-sm ${isOnline ? 'text-green-600' : 'text-red-600'}`}>
-                {isOnline ? 'Online' : 'Offline'}
-              </span>
+    <>
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header */}
+        <div className="bg-white/80 backdrop-blur-lg rounded-xl shadow-lg border border-white/20 p-6 mb-8">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900 mb-1">
+                {currentQuiz.title}
+              </h1>
+              <p className="text-gray-600">
+                Question {currentQuestionIndex + 1} of {currentQuiz.questions.length}
+              </p>
             </div>
             
-            {/* Auto-save Status */}
-            {isAutoSaving && (
-              <div className="flex items-center gap-2 text-sm text-blue-600">
-                <Save className="w-4 h-4 animate-pulse" />
-                Saving...
-              </div>
-            )}
-            
-            {lastSaveTime && !isAutoSaving && (
-              <div className="text-sm text-gray-500">
-                Last saved: {lastSaveTime.toLocaleTimeString()}
-              </div>
-            )}
-            
-            {/* Timer */}
-            <div className="flex items-center gap-2 text-lg font-semibold">
-              <Clock className={`w-5 h-5 ${timeLeft < 300 ? 'text-red-600' : 'text-blue-600'}`} />
-              <span className={timeLeft < 300 ? 'text-red-600' : 'text-blue-600'}>
-                {formatTime(timeLeft)}
-              </span>
-            </div>
-            
-            <Button
-              onClick={() => handleSubmit()}
-              disabled={isSubmitting}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              {isSubmitting ? 'Submitting...' : 'Submit Quiz'}
-            </Button>
-          </div>
-        </div>
-
-        {/* Progress Bar */}
-        <div className="mt-4">
-          <div className="flex justify-between text-sm text-gray-600 mb-2">
-            <span>Progress</span>
-            <span>
-              {answers.filter(a => isAnswered(a.questionId)).length} of {currentQuiz.questions.length} answered
-            </span>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-2">
-            <div
-              className="bg-gradient-to-r from-blue-600 to-purple-600 h-2 rounded-full transition-all duration-300"
-              style={{
-                width: `${((currentQuestionIndex + 1) / currentQuiz.questions.length) * 100}%`,
-              }}
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-        {/* Question Navigator */}
-        <div className="lg:col-span-1">
-          <div className="bg-white/80 backdrop-blur-lg rounded-xl shadow-lg border border-white/20 p-6 sticky top-24">
-            <h3 className="font-semibold text-gray-900 mb-4">Questions</h3>
-            <div className="grid grid-cols-5 lg:grid-cols-1 gap-2">
-              {currentQuiz.questions.map((question, index) => {
-                const qId = question._id || question.id || `question_${index}`;
-                return (
-                  <button
-                    key={qId}
-                    onClick={() => setCurrentQuestionIndex(index)}
-                    className={`p-3 rounded-lg text-sm font-medium transition-colors ${
-                      index === currentQuestionIndex
-                        ? 'bg-blue-600 text-white'
-                        : isAnswered(qId)
-                        ? 'bg-green-100 text-green-800 hover:bg-green-200'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      {question.type === 'code' ? (
-                        <Code className="w-3 h-3" />
-                      ) : (
-                        <FileText className="w-3 h-3" />
-                      )}
-                      <span className="hidden lg:inline">Q{index + 1}</span>
-                      <span className="lg:hidden">{index + 1}</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        {/* Question Content */}
-        <div className="lg:col-span-3">
-          <div className="bg-white/80 backdrop-blur-lg rounded-xl shadow-lg border border-white/20 p-8">
-            <div className="flex items-center gap-3 mb-6">
-              {currentQuestion.type === 'code' ? (
-                <Code className="w-6 h-6 text-blue-600" />
-              ) : (
-                <FileText className="w-6 h-6 text-green-600" />
-              )}
-              <div>
-                <h2 className="text-xl font-semibold text-gray-900">
-                  {currentQuestion.title}
-                </h2>
-                <span className="text-sm text-gray-600">
-                  {currentQuestion.points} point{currentQuestion.points !== 1 ? 's' : ''}
+            <div className="flex items-center gap-6">
+              {/* Connection Status */}
+              <div className="flex items-center gap-2">
+                {isOnline ? (
+                  <Wifi className="w-4 h-4 text-green-600" />
+                ) : (
+                  <WifiOff className="w-4 h-4 text-red-600" />
+                )}
+                <span className={`text-sm ${isOnline ? 'text-green-600' : 'text-red-600'}`}>
+                  {isOnline ? 'Online' : 'Offline'}
                 </span>
               </div>
+              
+              {/* Auto-save Status */}
+              {isAutoSaving && (
+                <div className="flex items-center gap-2 text-sm text-blue-600">
+                  <Save className="w-4 h-4 animate-pulse" />
+                  Saving...
+                </div>
+              )}
+              
+              {lastSaveTime && !isAutoSaving && (
+                <div className="text-sm text-gray-500">
+                  Last saved: {lastSaveTime.toLocaleTimeString()}
+                </div>
+              )}
+              
+              {/* Timer */}
+              <div className="flex items-center gap-2 text-lg font-semibold">
+                <Clock className={`w-5 h-5 ${timeLeft < 300 ? 'text-red-600' : 'text-blue-600'}`} />
+                <span className={timeLeft < 300 ? 'text-red-600' : 'text-blue-600'}>
+                  {formatTime(timeLeft)}
+                </span>
+              </div>
+              
+              <Button
+                onClick={handleSubmitClick}
+                disabled={isSubmitting}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {isSubmitting ? 'Submitting...' : 'Submit Quiz'}
+              </Button>
             </div>
+          </div>
 
-            <div className="mb-8">
+          {/* Progress Bar */}
+          <div className="mt-4">
+            <div className="flex justify-between text-sm text-gray-600 mb-2">
+              <span>Progress</span>
+              <span>
+                {answers.filter(a => isAnswered(a.questionId)).length} of {currentQuiz.questions.length} answered
+              </span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-2">
               <div
-                className="prose max-w-none"
-                dangerouslySetInnerHTML={{ __html: currentQuestion.content }}
+                className="bg-gradient-to-r from-blue-600 to-purple-600 h-2 rounded-full transition-all duration-300"
+                style={{
+                  width: `${((currentQuestionIndex + 1) / currentQuiz.questions.length) * 100}%`,
+                }}
               />
             </div>
+          </div>
+        </div>
 
-            {currentQuestion.type === 'multiple-choice' ? (
-              <div className="space-y-3">
-                {currentQuestion.options?.map((option, index) => (
-                  <label
-                    key={index}
-                    className={`flex items-center gap-3 p-4 border rounded-lg cursor-pointer transition-colors ${
-                      currentAnswer?.answer === index
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name={`question-${questionId}`}
-                      value={index}
-                      checked={currentAnswer?.answer === index}
-                      onChange={() => updateAnswer(questionId, index)}
-                      className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="flex-1">{option}</span>
-                  </label>
-                ))}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+          {/* Question Navigator */}
+          <div className="lg:col-span-1">
+            <div className="bg-white/80 backdrop-blur-lg rounded-xl shadow-lg border border-white/20 p-6 sticky top-24">
+              <h3 className="font-semibold text-gray-900 mb-4">Questions</h3>
+              <div className="grid grid-cols-5 lg:grid-cols-1 gap-2">
+                {currentQuiz.questions.map((question, index) => {
+                  const qId = question._id || question.id || `question_${index}`;
+                  return (
+                    <button
+                      key={qId}
+                      onClick={() => setCurrentQuestionIndex(index)}
+                      className={`p-3 rounded-lg text-sm font-medium transition-colors ${
+                        index === currentQuestionIndex
+                          ? 'bg-blue-600 text-white'
+                          : isAnswered(qId)
+                          ? 'bg-green-100 text-green-800 hover:bg-green-200'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        {question.type === 'code' ? (
+                          <Code className="w-3 h-3" />
+                        ) : (
+                          <FileText className="w-3 h-3" />
+                        )}
+                        <span className="hidden lg:inline">Q{index + 1}</span>
+                        <span className="lg:hidden">{index + 1}</span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
-            ) : (
-              <div>
-                <div className="mb-4">
-                  <span className="text-sm font-medium text-gray-700 bg-gray-100 px-3 py-1 rounded-full">
-                    {currentQuestion.language?.toUpperCase()}
+            </div>
+          </div>
+
+          {/* Question Content */}
+          <div className="lg:col-span-3">
+            <div className="bg-white/80 backdrop-blur-lg rounded-xl shadow-lg border border-white/20 p-8">
+              <div className="flex items-center gap-3 mb-6">
+                {currentQuestion.type === 'code' ? (
+                  <Code className="w-6 h-6 text-blue-600" />
+                ) : (
+                  <FileText className="w-6 h-6 text-green-600" />
+                )}
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    {currentQuestion.title}
+                  </h2>
+                  <span className="text-sm text-gray-600">
+                    {currentQuestion.points} point{currentQuestion.points !== 1 ? 's' : ''}
                   </span>
                 </div>
-                <CodeEditor
-                  value={currentAnswer?.code || ''}
-                  onChange={(code) => updateAnswer(questionId, code, code)}
-                  language={currentQuestion.language || 'javascript'}
-                  height="400px"
+              </div>
+
+              <div className="mb-8">
+                <div
+                  className="prose max-w-none"
+                  dangerouslySetInnerHTML={{ __html: currentQuestion.content }}
                 />
               </div>
-            )}
 
-            {/* Navigation */}
-            <div className="flex justify-between items-center mt-8 pt-6 border-t border-gray-200">
-              <Button
-                variant="outline"
-                onClick={() => setCurrentQuestionIndex(Math.max(0, currentQuestionIndex - 1))}
-                disabled={currentQuestionIndex === 0}
-              >
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Previous
-              </Button>
-              
-              <div className="text-sm text-gray-600">
-                {isAnswered(questionId) ? (
-                  <span className="flex items-center gap-1 text-green-600">
-                    <CheckCircle className="w-4 h-4" />
-                    Answered & Saved
-                  </span>
-                ) : (
-                  <span className="text-gray-500">Not answered</span>
-                )}
+              {currentQuestion.type === 'multiple-choice' ? (
+                <div className="space-y-3">
+                  {currentQuestion.options?.map((option, index) => (
+                    <label
+                      key={index}
+                      className={`flex items-center gap-3 p-4 border rounded-lg cursor-pointer transition-colors ${
+                        currentAnswer?.answer === index
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name={`question-${questionId}`}
+                        value={index}
+                        checked={currentAnswer?.answer === index}
+                        onChange={() => updateAnswer(questionId, index)}
+                        className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="flex-1">{option}</span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <div>
+                  <div className="mb-4">
+                    <span className="text-sm font-medium text-gray-700 bg-gray-100 px-3 py-1 rounded-full">
+                      {currentQuestion.language?.toUpperCase()}
+                    </span>
+                  </div>
+                  <CodeEditor
+                    value={currentAnswer?.code || ''}
+                    onChange={(code) => updateAnswer(questionId, code, code)}
+                    language={currentQuestion.language || 'javascript'}
+                    height="400px"
+                  />
+                </div>
+              )}
+
+              {/* Navigation */}
+              <div className="flex justify-between items-center mt-8 pt-6 border-t border-gray-200">
+                <Button
+                  variant="outline"
+                  onClick={() => setCurrentQuestionIndex(Math.max(0, currentQuestionIndex - 1))}
+                  disabled={currentQuestionIndex === 0}
+                >
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  Previous
+                </Button>
+                
+                <div className="text-sm text-gray-600">
+                  {isAnswered(questionId) ? (
+                    <span className="flex items-center gap-1 text-green-600">
+                      <CheckCircle className="w-4 h-4" />
+                      Answered & Saved
+                    </span>
+                  ) : (
+                    <span className="text-gray-500">Not answered</span>
+                  )}
+                </div>
+
+                <Button
+                  onClick={() => setCurrentQuestionIndex(Math.min(currentQuiz.questions.length - 1, currentQuestionIndex + 1))}
+                  disabled={currentQuestionIndex === currentQuiz.questions.length - 1}
+                >
+                  Next
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
               </div>
-
-              <Button
-                onClick={() => setCurrentQuestionIndex(Math.min(currentQuiz.questions.length - 1, currentQuestionIndex + 1))}
-                disabled={currentQuestionIndex === currentQuiz.questions.length - 1}
-              >
-                Next
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
             </div>
           </div>
         </div>
       </div>
-    </div>
+
+      {/* Submission Modal */}
+      <QuizSubmissionModal
+        isOpen={showSubmissionModal}
+        onClose={() => setShowSubmissionModal(false)}
+        onConfirm={handleConfirmSubmission}
+        quiz={currentQuiz}
+        answers={answers}
+        timeSpent={totalTimeSpent + Math.floor((Date.now() - timeStartRef.current) / 1000)}
+        isSubmitting={isSubmitting}
+      />
+    </>
   );
 };
 

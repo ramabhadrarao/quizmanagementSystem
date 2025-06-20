@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+  # MongoDB Database
   mongodb:
     image: mongo:6.0
     container_name: quiz-mongodb
@@ -16,25 +17,75 @@ services:
     networks:
       - quiz-network
 
+  # Redis for Queue Management
+  redis:
+    image: redis:7-alpine
+    container_name: quiz-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - quiz-network
+
+  # Main Application Server
   server:
-    build: ./server
+    build: 
+      context: ./server
+      dockerfile: Dockerfile
     container_name: quiz-server
     restart: unless-stopped
     ports:
       - "3001:3001"
     environment:
       MONGODB_URI: mongodb://admin:password123@mongodb:27017/quiz-system?authSource=admin
+      REDIS_URL: redis://redis:6379
       JWT_SECRET: your-super-secret-jwt-key-here
       PORT: 3001
+      CODE_EXECUTION_SERVICE_URL: http://code-execution:3002
     depends_on:
       - mongodb
+      - redis
+    networks:
+      - quiz-network
+
+  # Code Execution Microservice
+  code-execution:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.code-execution
+    container_name: quiz-code-execution
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      CODE_EXECUTION_PORT: 3002
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp:/tmp
+    privileged: true  # Required for Docker-in-Docker
+    networks:
+      - quiz-network
+
+  # Frontend (for production)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: quiz-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - server
     networks:
       - quiz-network
 
 volumes:
   mongodb_data:
+  redis_data:
 
 networks:
   quiz-network:

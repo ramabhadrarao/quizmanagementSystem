@@ -6,6 +6,8 @@ import Dashboard from './components/Dashboard/Dashboard';
 import QuizList from './components/Quiz/QuizList';
 import QuizEditor from './components/Quiz/QuizEditor';
 import QuizTaking from './components/Quiz/QuizTaking';
+import QuizResult from './components/Quiz/QuizResult';
+import AdminDashboard from './components/Admin/AdminDashboard';
 import Navbar from './components/Layout/Navbar';
 import { Toaster } from './components/UI/Toaster';
 
@@ -33,6 +35,15 @@ function App() {
             <Route path="/quiz/new" element={<QuizEditor />} />
             <Route path="/quiz/edit/:id" element={<QuizEditor />} />
             <Route path="/quiz/take/:id" element={<QuizTaking />} />
+            <Route path="/quiz/result/:id" element={<QuizResult />} />
+            
+            {/* Admin-only routes */}
+            {user?.role === 'admin' && (
+              <Route path="/admin" element={<AdminDashboard />} />
+            )}
+            
+            {/* Redirect unknown routes */}
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </main>
         <Toaster />

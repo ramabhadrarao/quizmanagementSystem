@@ -1,4 +1,4 @@
-// server/src/models/Submission.js - Enhanced with auto-save support
+// server/src/models/Submission.js - Enhanced model with queue support
 import mongoose from 'mongoose';
 
 const answerSchema = new mongoose.Schema({
@@ -12,7 +12,7 @@ const answerSchema = new mongoose.Schema({
     required: true,
   },
   answer: {
-    type: mongoose.Schema.Types.Mixed, // Can be string, number, etc.
+    type: mongoose.Schema.Types.Mixed,
     default: null,
   },
   code: {
@@ -35,9 +35,9 @@ const answerSchema = new mongoose.Schema({
       input: String,
       expectedOutput: String,
       actualOutput: String,
+      error: String,
     }],
   },
-  // Auto-save tracking
   lastSaved: {
     type: Date,
     default: Date.now,
@@ -69,7 +69,7 @@ const submissionSchema = new mongoose.Schema({
     default: 0,
   },
   timeSpent: {
-    type: Number, // in seconds
+    type: Number,
     default: 0,
   },
   startedAt: {
@@ -83,7 +83,17 @@ const submissionSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
-  // Auto-save and resume support
+  status: {
+    type: String,
+    enum: ['in_progress', 'submitted', 'processing', 'completed', 'error'],
+    default: 'in_progress',
+  },
+  queueJobId: {
+    type: String,
+  },
+  errorMessage: {
+    type: String,
+  },
   lastActivity: {
     type: Date,
     default: Date.now,
@@ -92,16 +102,14 @@ const submissionSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
-  // Submission metadata
   submissionAttempt: {
     type: Number,
     default: 1,
   },
-  browserInfo: {
-    userAgent: String,
-    timestamp: Date,
+  canRetake: {
+    type: Boolean,
+    default: false,
   },
-  // Time tracking
   timeTracking: [{
     action: {
       type: String,
@@ -111,28 +119,26 @@ const submissionSchema = new mongoose.Schema({
       type: Date,
       default: Date.now,
     },
-    timeSpent: Number, // cumulative time spent
+    timeSpent: Number,
   }],
 }, {
   timestamps: true,
 });
 
-// Indexes for better performance
-submissionSchema.index({ quiz: 1, user: 1, isCompleted: 1 });
-submissionSchema.index({ user: 1, isCompleted: 1, createdAt: -1 });
-submissionSchema.index({ quiz: 1, isCompleted: 1, createdAt: -1 });
+// Indexes for performance
+submissionSchema.index({ quiz: 1, user: 1, status: 1 });
+submissionSchema.index({ user: 1, status: 1, createdAt: -1 });
+submissionSchema.index({ quiz: 1, status: 1, createdAt: -1 });
+submissionSchema.index({ status: 1, createdAt: -1 });
 
-// Pre-save middleware to calculate percentage and update activity
+// Pre-save middleware
 submissionSchema.pre('save', function(next) {
-  // Calculate percentage
   if (this.maxScore > 0) {
     this.percentage = Math.round((this.totalScore / this.maxScore) * 100);
   }
   
-  // Update last activity
   this.lastActivity = new Date();
   
-  // Track auto-save
   if (!this.isCompleted && this.isModified('answers')) {
     this.autoSaveCount += 1;
   }
@@ -140,32 +146,7 @@ submissionSchema.pre('save', function(next) {
   next();
 });
 
-// Method to check if submission is still active (not timed out)
-submissionSchema.methods.isActive = function() {
-  if (this.isCompleted) return false;
-  
-  // Consider inactive if no activity for 30 minutes
-  const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
-  return this.lastActivity > thirtyMinutesAgo;
-};
-
-// Method to get time remaining (if quiz has time limit)
-submissionSchema.methods.getTimeRemaining = function(quizTimeLimit) {
-  if (this.isCompleted) return 0;
-  
-  const timeAllowedInSeconds = quizTimeLimit * 60; // Convert minutes to seconds
-  const timeElapsed = this.timeSpent || 0;
-  const timeRemaining = Math.max(0, timeAllowedInSeconds - timeElapsed);
-  
-  return timeRemaining;
-};
-
-// Method to check if user can resume this submission
-submissionSchema.methods.canResume = function() {
-  return !this.isCompleted && this.isActive();
-};
-
-// Method to add time tracking entry
+// Instance methods
 submissionSchema.methods.addTimeTracking = function(action, timeSpent = null) {
   this.timeTracking.push({
     action,
@@ -174,68 +155,49 @@ submissionSchema.methods.addTimeTracking = function(action, timeSpent = null) {
   });
 };
 
-// Static method to find active submission for user
+// Static methods
 submissionSchema.statics.findActiveSubmission = function(userId, quizId) {
   return this.findOne({
     user: userId,
     quiz: quizId,
-    isCompleted: false,
+    status: { $in: ['in_progress', 'submitted', 'processing'] },
   });
 };
 
-// Static method to cleanup old inactive submissions (can be run as a cron job)
-submissionSchema.statics.cleanupInactiveSubmissions = async function() {
-  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+submissionSchema.statics.getSubmissionStats = async function(quizId) {
+  const stats = await this.aggregate([
+    { $match: { quiz: new mongoose.Types.ObjectId(quizId), status: 'completed' } },
+    {
+      $group: {
+        _id: null,
+        totalSubmissions: { $sum: 1 },
+        averageScore: { $avg: '$percentage' },
+        maxScore: { $max: '$percentage' },
+        minScore: { $min: '$percentage' },
+        averageTime: { $avg: '$timeSpent' },
+      }
+    }
+  ]);
   
-  const result = await this.deleteMany({
-    isCompleted: false,
-    lastActivity: { $lt: oneDayAgo },
-  });
-  
-  console.log(`🧹 Cleaned up ${result.deletedCount} inactive submissions`);
-  return result.deletedCount;
+  return stats[0] || {
+    totalSubmissions: 0,
+    averageScore: 0,
+    maxScore: 0,
+    minScore: 0,
+    averageTime: 0,
+  };
 };
 
-// Virtual for getting formatted time spent
-submissionSchema.virtual('formattedTimeSpent').get(function() {
-  const seconds = this.timeSpent || 0;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
-});
-
-// Virtual for getting completion status
+// Virtual for completion status
 submissionSchema.virtual('completionStatus').get(function() {
-  if (this.isCompleted) return 'completed';
-  if (!this.isActive()) return 'expired';
-  return 'in_progress';
-});
-
-// Remove sensitive data from JSON output
-submissionSchema.methods.toJSON = function() {
-  const submissionObject = this.toObject();
-  
-  // Remove sensitive execution details for students
-  if (submissionObject.answers) {
-    submissionObject.answers = submissionObject.answers.map(answer => ({
-      questionId: answer.questionId,
-      type: answer.type,
-      answer: answer.answer,
-      code: answer.code,
-      isCorrect: answer.isCorrect,
-      score: answer.score,
-      // Only include basic execution result, not detailed test cases
-      executionResult: answer.executionResult ? {
-        output: answer.executionResult.output,
-        error: answer.executionResult.error,
-        hasTestResults: !!(answer.executionResult.testResults && answer.executionResult.testResults.length > 0),
-        passedTests: answer.executionResult.testResults ? answer.executionResult.testResults.filter(t => t.passed).length : 0,
-        totalTests: answer.executionResult.testResults ? answer.executionResult.testResults.length : 0,
-      } : null,
-    }));
+  switch (this.status) {
+    case 'in_progress': return 'In Progress';
+    case 'submitted': return 'Submitted';
+    case 'processing': return 'Processing';
+    case 'completed': return 'Completed';
+    case 'error': return 'Error';
+    default: return 'Unknown';
   }
-  
-  return submissionObject;
-};
+});
 
 export default mongoose.model('Submission', submissionSchema);
