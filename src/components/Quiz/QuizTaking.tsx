@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Clock, CheckCircle, AlertCircle, Code, FileText, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Clock, CheckCircle, AlertCircle, Code, FileText, ArrowLeft, ArrowRight, Save, Wifi, WifiOff } from 'lucide-react';
 import { useQuizStore, Question } from '../../stores/quizStore';
 import Button from '../UI/Button';
 import CodeEditor from './CodeEditor';
@@ -14,6 +14,18 @@ interface Answer {
   code?: string;
 }
 
+interface SubmissionStatus {
+  hasInProgress: boolean;
+  submission?: {
+    id: string;
+    startedAt: string;
+    timeSpent: number;
+    answers: Answer[];
+  };
+  completedAttempts?: number;
+  lastAttempt?: any;
+}
+
 const QuizTaking: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -22,85 +34,267 @@ const QuizTaking: React.FC = () => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Answer[]>([]);
   const [timeLeft, setTimeLeft] = useState(0);
+  const [totalTimeSpent, setTotalTimeSpent] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [quizStarted, setQuizStarted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [submissionId, setSubmissionId] = useState<string | null>(null);
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [isResuming, setIsResuming] = useState(false);
 
+  // Refs for intervals and timers
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const autoSaveRef = useRef<NodeJS.Timeout | null>(null);
+  const timeStartRef = useRef<number>(Date.now());
+
+  // Network status monitoring
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Auto-save function
+  const autoSave = useCallback(async (questionId: string, answer: string | number, code?: string) => {
+    if (!submissionId || !isOnline) return;
+
+    try {
+      setIsAutoSaving(true);
+      const currentTimeSpent = totalTimeSpent + Math.floor((Date.now() - timeStartRef.current) / 1000);
+      
+      await api.post('/submissions/save-answer', {
+        submissionId,
+        questionId,
+        answer,
+        code,
+        timeSpent: currentTimeSpent,
+      });
+      
+      setLastSaveTime(new Date());
+      console.log('🔍 Auto-saved answer for question:', questionId);
+    } catch (error) {
+      console.error('🔍 Auto-save failed:', error);
+      toast.error('Failed to auto-save. Please check your connection.');
+    } finally {
+      setIsAutoSaving(false);
+    }
+  }, [submissionId, isOnline, totalTimeSpent]);
+
+  // Debounced auto-save
+  const debouncedAutoSave = useCallback((questionId: string, answer: string | number, code?: string) => {
+    if (autoSaveRef.current) {
+      clearTimeout(autoSaveRef.current);
+    }
+    
+    autoSaveRef.current = setTimeout(() => {
+      autoSave(questionId, answer, code);
+    }, 2000); // Auto-save 2 seconds after user stops typing
+  }, [autoSave]);
+
+  // Check for existing submission on load
   useEffect(() => {
     if (id) {
-      console.log('Fetching quiz with ID:', id);
-      fetchQuiz(id).catch(err => {
-        console.error('Error fetching quiz:', err);
+      console.log('🔍 Checking for existing submission...');
+      
+      const checkSubmissionStatus = async () => {
+        try {
+          const response = await api.get(`/submissions/status/${id}`);
+          const status: SubmissionStatus = response.data;
+          
+          if (status.hasInProgress && status.submission) {
+            console.log('🔍 Found in-progress submission, offering to resume...');
+            
+            const shouldResume = window.confirm(
+              'You have an in-progress quiz attempt. Would you like to resume where you left off?'
+            );
+            
+            if (shouldResume) {
+              setIsResuming(true);
+              setSubmissionId(status.submission.id);
+              setTotalTimeSpent(status.submission.timeSpent);
+              setAnswers(status.submission.answers);
+              
+              // Calculate time left
+              await fetchQuiz(id);
+              // Will be handled in the quiz loading effect
+            } else {
+              // User chose not to resume - would need to handle this case
+              toast.info('Starting a new attempt...');
+            }
+          }
+        } catch (error) {
+          console.error('🔍 Error checking submission status:', error);
+        }
+      };
+      
+      fetchQuiz(id).then(() => {
+        checkSubmissionStatus();
+      }).catch(err => {
+        console.error('🔍 Error fetching quiz:', err);
         setError('Failed to load quiz. Please try again.');
       });
     }
   }, [id, fetchQuiz]);
 
+  // Timer management
   useEffect(() => {
-    if (currentQuiz && quizStarted) {
-      setTimeLeft(currentQuiz.timeLimit * 60); // Convert minutes to seconds
+    if (currentQuiz && quizStarted && !isResuming) {
+      setTimeLeft(currentQuiz.timeLimit * 60);
+      timeStartRef.current = Date.now();
+    } else if (currentQuiz && quizStarted && isResuming) {
+      const timeAllowed = currentQuiz.timeLimit * 60;
+      const timeSpentAlready = totalTimeSpent;
+      const remainingTime = Math.max(0, timeAllowed - timeSpentAlready);
+      setTimeLeft(remainingTime);
+      timeStartRef.current = Date.now();
     }
-  }, [currentQuiz, quizStarted]);
+  }, [currentQuiz, quizStarted, isResuming, totalTimeSpent]);
 
+  // Timer countdown
   useEffect(() => {
     if (timeLeft > 0 && quizStarted) {
-      const timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
-      return () => clearTimeout(timer);
-    } else if (timeLeft === 0 && quizStarted) {
-      handleSubmit();
+      timerRef.current = setTimeout(() => {
+        setTimeLeft(prev => {
+          const newTime = prev - 1;
+          if (newTime <= 0) {
+            console.log('🔍 Time expired, auto-submitting...');
+            handleSubmit(true); // Force submit
+            return 0;
+          }
+          return newTime;
+        });
+      }, 1000);
+      
+      return () => {
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+        }
+      };
     }
   }, [timeLeft, quizStarted]);
 
-  const startQuiz = () => {
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
+    };
+  }, []);
+
+  // Beforeunload warning
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (quizStarted && !isSubmitting) {
+        e.preventDefault();
+        e.returnValue = 'You have an active quiz. Are you sure you want to leave?';
+        return e.returnValue;
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [quizStarted, isSubmitting]);
+
+  const startQuiz = async () => {
     if (!currentQuiz) {
       toast.error('Quiz data not loaded');
       return;
     }
 
-    setQuizStarted(true);
-    // Initialize answers with proper question IDs
-    const initialAnswers: Answer[] = currentQuiz.questions.map((question, index) => ({
-      questionId: question._id || question.id || index.toString(),
-      type: question.type,
-      answer: question.type === 'multiple-choice' ? -1 : '',
-      code: question.type === 'code' ? '' : undefined,
-    }));
-    setAnswers(initialAnswers);
-    console.log('Quiz started with answers:', initialAnswers);
+    try {
+      console.log('🔍 Starting new quiz attempt...');
+      
+      const response = await api.post('/submissions/start', {
+        quizId: currentQuiz.id || currentQuiz._id,
+      });
+      
+      const { submission } = response.data;
+      
+      setSubmissionId(submission.id);
+      setQuizStarted(true);
+      setTotalTimeSpent(submission.timeSpent || 0);
+      
+      if (submission.isResuming) {
+        setIsResuming(true);
+        setAnswers(submission.answers);
+        toast.success('Resumed quiz attempt');
+      } else {
+        setAnswers(submission.answers);
+        toast.success('Quiz started');
+      }
+      
+      timeStartRef.current = Date.now();
+      
+    } catch (error: any) {
+      console.error('🔍 Error starting quiz:', error);
+      toast.error(error.response?.data?.message || 'Failed to start quiz');
+    }
   };
 
   const updateAnswer = (questionId: string, answer: string | number, code?: string) => {
-    console.log('Updating answer:', { questionId, answer, code });
-    setAnswers(prev => 
-      prev.map(a => 
+    console.log('🔍 Updating answer:', { questionId, answer: typeof answer === 'string' ? answer.substring(0, 50) + '...' : answer });
+    
+    // Update local state immediately
+    setAnswers(prev => {
+      const updated = prev.map(a => 
         a.questionId === questionId 
           ? { ...a, answer, code }
           : a
-      )
-    );
+      );
+      return updated;
+    });
+    
+    // Trigger auto-save
+    debouncedAutoSave(questionId, answer, code);
   };
 
-  const handleSubmit = async () => {
-    if (!currentQuiz) return;
+  const handleSubmit = async (forceSubmit = false) => {
+    if (!submissionId) {
+      toast.error('No active submission found');
+      return;
+    }
+
+    console.log('🔍 Submitting quiz...', { submissionId, forceSubmit });
 
     setIsSubmitting(true);
     try {
-      const submission = {
-        quizId: currentQuiz._id || currentQuiz.id,
-        answers: answers.map(a => ({
-          ...a,
-          answer: a.type === 'code' ? (a.code || '') : a.answer
-        })),
-        completedAt: new Date().toISOString(),
-      };
-
-      console.log('Submitting quiz:', submission);
-      await api.post('/submissions', submission);
+      // Calculate final time spent
+      const currentTimeSpent = totalTimeSpent + Math.floor((Date.now() - timeStartRef.current) / 1000);
+      
+      const response = await api.post('/submissions/submit', {
+        submissionId,
+        timeSpent: currentTimeSpent,
+        forceSubmit,
+      });
+      
+      console.log('🔍 Quiz submitted successfully:', response.data);
       toast.success('Quiz submitted successfully!');
+      
+      // Clear timers
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
+      
       navigate('/dashboard');
     } catch (error: any) {
-      console.error('Submission error:', error);
-      toast.error(error.response?.data?.message || 'Failed to submit quiz');
+      console.error('🔍 Submission error:', error);
+      
+      let errorMessage = 'Failed to submit quiz';
+      if (error.response?.status === 401) {
+        errorMessage = 'Session expired. Please log in again.';
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      }
+      
+      toast.error(errorMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -117,12 +311,13 @@ const QuizTaking: React.FC = () => {
     if (!answer) return false;
     
     if (answer.type === 'multiple-choice') {
-      return answer.answer !== -1;
+      return answer.answer !== -1 && answer.answer !== '';
     } else {
       return answer.code && answer.code.trim().length > 0;
     }
   };
 
+  // Loading state
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -134,6 +329,7 @@ const QuizTaking: React.FC = () => {
     );
   }
 
+  // Error state
   if (error || !currentQuiz) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -153,6 +349,7 @@ const QuizTaking: React.FC = () => {
     );
   }
 
+  // Quiz start screen
   if (!quizStarted) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4">
@@ -199,7 +396,7 @@ const QuizTaking: React.FC = () => {
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-8">
               <AlertCircle className="w-5 h-5 text-yellow-600 inline mr-2" />
               <span className="text-sm text-yellow-800">
-                Once you start, you cannot pause the quiz. Make sure you have a stable internet connection.
+                Your progress will be automatically saved. You can log out and resume later if needed.
               </span>
             </div>
 
@@ -215,7 +412,7 @@ const QuizTaking: React.FC = () => {
                 onClick={startQuiz}
                 size="lg"
               >
-                Start Quiz
+                {isResuming ? 'Resume Quiz' : 'Start Quiz'}
               </Button>
             </div>
           </div>
@@ -224,9 +421,8 @@ const QuizTaking: React.FC = () => {
     );
   }
 
+  // Validate current question
   const currentQuestion = currentQuiz.questions[currentQuestionIndex];
-  const currentAnswer = answers.find(a => a.questionId === (currentQuestion._id || currentQuestion.id || currentQuestionIndex.toString()));
-
   if (!currentQuestion) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -240,6 +436,9 @@ const QuizTaking: React.FC = () => {
       </div>
     );
   }
+
+  const questionId = currentQuestion._id || currentQuestion.id || `question_${currentQuestionIndex}`;
+  const currentAnswer = answers.find(a => a.questionId === questionId);
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -256,6 +455,33 @@ const QuizTaking: React.FC = () => {
           </div>
           
           <div className="flex items-center gap-6">
+            {/* Connection Status */}
+            <div className="flex items-center gap-2">
+              {isOnline ? (
+                <Wifi className="w-4 h-4 text-green-600" />
+              ) : (
+                <WifiOff className="w-4 h-4 text-red-600" />
+              )}
+              <span className={`text-sm ${isOnline ? 'text-green-600' : 'text-red-600'}`}>
+                {isOnline ? 'Online' : 'Offline'}
+              </span>
+            </div>
+            
+            {/* Auto-save Status */}
+            {isAutoSaving && (
+              <div className="flex items-center gap-2 text-sm text-blue-600">
+                <Save className="w-4 h-4 animate-pulse" />
+                Saving...
+              </div>
+            )}
+            
+            {lastSaveTime && !isAutoSaving && (
+              <div className="text-sm text-gray-500">
+                Last saved: {lastSaveTime.toLocaleTimeString()}
+              </div>
+            )}
+            
+            {/* Timer */}
             <div className="flex items-center gap-2 text-lg font-semibold">
               <Clock className={`w-5 h-5 ${timeLeft < 300 ? 'text-red-600' : 'text-blue-600'}`} />
               <span className={timeLeft < 300 ? 'text-red-600' : 'text-blue-600'}>
@@ -264,7 +490,7 @@ const QuizTaking: React.FC = () => {
             </div>
             
             <Button
-              onClick={handleSubmit}
+              onClick={() => handleSubmit()}
               disabled={isSubmitting}
               className="bg-green-600 hover:bg-green-700"
             >
@@ -299,7 +525,7 @@ const QuizTaking: React.FC = () => {
             <h3 className="font-semibold text-gray-900 mb-4">Questions</h3>
             <div className="grid grid-cols-5 lg:grid-cols-1 gap-2">
               {currentQuiz.questions.map((question, index) => {
-                const qId = question._id || question.id || index.toString();
+                const qId = question._id || question.id || `question_${index}`;
                 return (
                   <button
                     key={qId}
@@ -367,13 +593,10 @@ const QuizTaking: React.FC = () => {
                   >
                     <input
                       type="radio"
-                      name={`question-${currentQuestion._id || currentQuestion.id}`}
+                      name={`question-${questionId}`}
                       value={index}
                       checked={currentAnswer?.answer === index}
-                      onChange={() => updateAnswer(
-                        currentQuestion._id || currentQuestion.id || currentQuestionIndex.toString(), 
-                        index
-                      )}
+                      onChange={() => updateAnswer(questionId, index)}
                       className="w-4 h-4 text-blue-600 focus:ring-blue-500"
                     />
                     <span className="flex-1">{option}</span>
@@ -389,11 +612,7 @@ const QuizTaking: React.FC = () => {
                 </div>
                 <CodeEditor
                   value={currentAnswer?.code || ''}
-                  onChange={(code) => updateAnswer(
-                    currentQuestion._id || currentQuestion.id || currentQuestionIndex.toString(), 
-                    code, 
-                    code
-                  )}
+                  onChange={(code) => updateAnswer(questionId, code, code)}
                   language={currentQuestion.language || 'javascript'}
                   height="400px"
                 />
@@ -412,10 +631,10 @@ const QuizTaking: React.FC = () => {
               </Button>
               
               <div className="text-sm text-gray-600">
-                {isAnswered(currentQuestion._id || currentQuestion.id || currentQuestionIndex.toString()) ? (
+                {isAnswered(questionId) ? (
                   <span className="flex items-center gap-1 text-green-600">
                     <CheckCircle className="w-4 h-4" />
-                    Answered
+                    Answered & Saved
                   </span>
                 ) : (
                   <span className="text-gray-500">Not answered</span>
