@@ -1,4 +1,4 @@
-// server/src/index.js - Fixed to NOT include code execution service
+// server/src/index.js - Updated to remove embedded code execution service
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
@@ -8,6 +8,8 @@ import quizRoutes from './routes/quizzes.js';
 import submissionRoutes from './routes/submissions.js';
 import codeExecutionRoutes from './routes/codeExecution.js';
 import dashboardRoutes from './routes/dashboard.js';
+import healthRoutes from './routes/health.js';
+import { checkCodeExecutionHealth } from './services/codeExecution.js';
 
 dotenv.config();
 
@@ -33,6 +35,22 @@ const connectDB = async () => {
   }
 };
 
+// Check external services
+const checkExternalServices = async () => {
+  console.log('🔍 Checking external services...');
+  
+  // Check code execution service
+  const codeExecHealth = await checkCodeExecutionHealth();
+  if (codeExecHealth.healthy) {
+    console.log('✅ Code Execution Service: Connected');
+    console.log(`   URL: ${process.env.CODE_EXECUTION_SERVICE_URL || 'http://localhost:3000/api/v1'}`);
+  } else {
+    console.warn('⚠️  Code Execution Service: Not available');
+    console.warn(`   URL: ${process.env.CODE_EXECUTION_SERVICE_URL || 'http://localhost:3000/api/v1'}`);
+    console.warn('   Code execution features will not work until the service is available');
+  }
+};
+
 // Initialize database connection
 connectDB();
 
@@ -42,15 +60,18 @@ app.use('/api/quizzes', quizRoutes);
 app.use('/api/submissions', submissionRoutes);
 app.use('/api/code', codeExecutionRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api', healthRoutes);
 
-// Health check
-app.get('/api/health', (req, res) => {
+// Legacy health check endpoint (for backward compatibility)
+app.get('/api/health', async (req, res) => {
+  const codeExecHealth = await checkCodeExecutionHealth();
+  
   res.json({ 
     status: 'OK', 
     timestamp: new Date().toISOString(),
     services: {
       database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-      codeExecution: process.env.CODE_EXECUTION_SERVICE_URL || 'fallback'
+      codeExecution: codeExecHealth.healthy ? 'connected' : 'disconnected'
     }
   });
 });
@@ -69,10 +90,17 @@ app.use((req, res) => {
   res.status(404).json({ message: 'Route not found' });
 });
 
-app.listen(PORT, () => {
+// Start server
+app.listen(PORT, async () => {
   console.log(`🚀 Quiz Server running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
+  
+  // Check external services after startup
+  await checkExternalServices();
+  
+  console.log('\n📌 Important: Make sure the Code Execution Service is running!');
+  console.log(`   Expected at: ${process.env.CODE_EXECUTION_SERVICE_URL || 'http://localhost:3000/api/v1'}`);
 });
 
 // Graceful shutdown

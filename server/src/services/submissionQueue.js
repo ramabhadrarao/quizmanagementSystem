@@ -1,9 +1,9 @@
-// server/src/services/submissionQueue.js - Redis queue for processing submissions
+// server/src/services/submissionQueue.js - Updated to use external code execution service
 import Queue from 'bull';
 import Redis from 'ioredis';
 import Submission from '../models/Submission.js';
 import Quiz from '../models/Quiz.js';
-import axios from 'axios';
+import { executeCode } from './codeExecution.js';
 
 // Redis connection
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
@@ -28,42 +28,6 @@ const submissionQueue = new Queue('submission processing', {
     },
   },
 });
-
-// Code execution with proper error handling
-const executeCode = async (code, language, testCases = []) => {
-  const CODE_EXECUTION_SERVICE_URL = process.env.CODE_EXECUTION_SERVICE_URL || 'http://localhost:3002';
-  
-  try {
-    console.log(`🔄 Executing ${language} code via service`);
-    
-    const response = await axios.post(`${CODE_EXECUTION_SERVICE_URL}/execute`, {
-      code,
-      language,
-      testCases,
-    }, {
-      timeout: 60000, // 60 second timeout
-    });
-
-    return response.data;
-  } catch (error) {
-    console.error('❌ Code execution service error:', error.message);
-    
-    // Return fallback result
-    return {
-      output: '',
-      error: `Code execution failed: ${error.message}`,
-      testResults: testCases.map(tc => ({
-        passed: false,
-        input: tc.input,
-        expectedOutput: tc.expectedOutput,
-        actualOutput: '',
-        error: 'Service unavailable'
-      })),
-      executionTime: 0,
-      executionId: `fallback-${Date.now()}`,
-    };
-  }
-};
 
 // Process submissions in queue
 submissionQueue.process('grade-submission', 5, async (job) => {
@@ -102,19 +66,23 @@ submissionQueue.process('grade-submission', 5, async (job) => {
       await job.progress((i / submission.answers.length) * 100);
 
       if (question.type === 'multiple-choice') {
+        // Grade multiple choice question
         isCorrect = question.correctAnswer === answer.answer;
         score = isCorrect ? question.points : 0;
       } else if (question.type === 'code') {
+        // Grade code question using external service
         try {
           if (answer.code && answer.code.trim()) {
             console.log(`🧪 Executing code for question: ${question.title}`);
             
+            // Call external code execution service
             executionResult = await executeCode(
               answer.code,
               question.language,
               question.testCases || []
             );
             
+            // Calculate score based on test results
             if (executionResult.testResults && executionResult.testResults.length > 0) {
               const passedTests = executionResult.testResults.filter(t => t.passed).length;
               const totalTests = executionResult.testResults.length;
@@ -129,7 +97,13 @@ submissionQueue.process('grade-submission', 5, async (job) => {
           console.error(`Code execution error for question ${question.title}:`, error);
           executionResult = {
             error: 'Code execution failed: ' + error.message,
-            testResults: [],
+            testResults: question.testCases?.map(tc => ({
+              passed: false,
+              input: tc.input,
+              expectedOutput: tc.expectedOutput,
+              actualOutput: '',
+              error: 'Execution service error'
+            })) || [],
           };
         }
       }

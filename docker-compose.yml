@@ -30,7 +30,31 @@ services:
     networks:
       - quiz-network
 
-  # Main Application Server
+  # External Code Execution Service
+  code-execution:
+    build: 
+      context: ../code-execution-service  # Path to your code execution service
+      dockerfile: Dockerfile
+    container_name: code-execution-service
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      EXECUTION_TIMEOUT: 10000
+      MEMORY_LIMIT: 134217728
+      CPU_QUOTA: 50000
+      RATE_LIMIT_WINDOW: 60000
+      RATE_LIMIT_MAX: 100
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./code-execution-logs:/app/logs
+    privileged: true  # Required for Docker-in-Docker
+    networks:
+      - quiz-network
+
+  # Main Quiz Application Server
   server:
     build: 
       context: ./server
@@ -44,28 +68,11 @@ services:
       REDIS_URL: redis://redis:6379
       JWT_SECRET: your-super-secret-jwt-key-here
       PORT: 3001
-      CODE_EXECUTION_SERVICE_URL: http://code-execution:3002
+      CODE_EXECUTION_SERVICE_URL: http://code-execution:3000/api/v1
     depends_on:
       - mongodb
       - redis
-    networks:
-      - quiz-network
-
-  # Code Execution Microservice
-  code-execution:
-    build:
-      context: ./server
-      dockerfile: Dockerfile.code-execution
-    container_name: quiz-code-execution
-    restart: unless-stopped
-    ports:
-      - "3002:3002"
-    environment:
-      CODE_EXECUTION_PORT: 3002
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /tmp:/tmp
-    privileged: true  # Required for Docker-in-Docker
+      - code-execution
     networks:
       - quiz-network
 
