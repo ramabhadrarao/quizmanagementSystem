@@ -1,4 +1,4 @@
-// server/src/routes/submissions.js - Additional missing routes
+// server/src/routes/submissions.js - Complete routes with strict single submission policy
 import express from 'express';
 import Submission from '../models/Submission.js';
 import Quiz from '../models/Quiz.js';
@@ -6,6 +6,157 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { queueSubmissionForGrading } from '../services/submissionQueue.js';
 
 const router = express.Router();
+
+// Get submission by ID (for viewing results)
+router.get('/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    console.log('🔍 Fetching submission:', id);
+    
+    const submission = await Submission.findById(id)
+      .populate('quiz')
+      .populate('user', 'name email');
+    
+    if (!submission) {
+      return res.status(404).json({ message: 'Submission not found' });
+    }
+    
+    // Check if user has permission to view this submission
+    if (req.user.role === 'student' && submission.user._id.toString() !== req.user.userId) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+    
+    res.json({
+      id: submission._id,
+      quiz: submission.quiz,
+      user: submission.user,
+      answers: submission.answers,
+      totalScore: submission.totalScore,
+      maxScore: submission.maxScore,
+      percentage: submission.percentage,
+      timeSpent: submission.timeSpent,
+      completedAt: submission.completedAt,
+      status: submission.status,
+      startedAt: submission.startedAt,
+    });
+  } catch (error) {
+    console.error('Error fetching submission:', error);
+    res.status(500).json({ message: 'Error fetching submission' });
+  }
+});
+
+// Get user's submissions
+router.get('/my/submissions', requireAuth, async (req, res) => {
+  try {
+    const { page = 1, limit = 10, status } = req.query;
+    
+    const query = { user: req.user.userId };
+    if (status) {
+      query.status = status;
+    }
+    
+    const submissions = await Submission.find(query)
+      .populate('quiz', 'title description')
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+    
+    const total = await Submission.countDocuments(query);
+    
+    res.json({
+      submissions,
+      pagination: {
+        page: parseInt(page),
+        pages: Math.ceil(total / limit),
+        total,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching user submissions:', error);
+    res.status(500).json({ message: 'Error fetching submissions' });
+  }
+});
+
+// Check submission status for a quiz
+router.get('/status/:quizId', requireAuth, async (req, res) => {
+  try {
+    const { quizId } = req.params;
+    
+    // Check for any submission (in any status)
+    const existingSubmission = await Submission.findOne({
+      user: req.user.userId,
+      quiz: quizId,
+    });
+    
+    if (existingSubmission) {
+      return res.json({
+        hasSubmission: true,
+        submission: {
+          id: existingSubmission._id,
+          status: existingSubmission.status,
+          startedAt: existingSubmission.startedAt,
+          completedAt: existingSubmission.completedAt,
+          timeSpent: existingSubmission.timeSpent || 0,
+          percentage: existingSubmission.percentage,
+          canResume: existingSubmission.status === 'in_progress',
+        },
+      });
+    }
+    
+    res.json({
+      hasSubmission: false,
+      submission: null,
+    });
+  } catch (error) {
+    console.error('Error checking submission status:', error);
+    res.status(500).json({ message: 'Error checking submission status' });
+  }
+});
+
+// Get all submissions for a quiz (admin/instructor only)
+router.get('/quiz/:quizId/all', requireAuth, requireRole(['admin', 'instructor']), async (req, res) => {
+  try {
+    const { quizId } = req.params;
+    const { page = 1, limit = 20, status } = req.query;
+    
+    const query = { quiz: quizId };
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+    
+    const submissions = await Submission.find(query)
+      .populate('user', 'name email')
+      .populate('quiz', 'title')
+      .sort({ completedAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+    
+    const total = await Submission.countDocuments(query);
+    
+    res.json({
+      submissions: submissions.map(sub => ({
+        id: sub._id,
+        user: sub.user,
+        quiz: sub.quiz,
+        totalScore: sub.totalScore,
+        maxScore: sub.maxScore,
+        percentage: sub.percentage,
+        timeSpent: sub.timeSpent,
+        completedAt: sub.completedAt,
+        status: sub.status,
+      })),
+      pagination: {
+        page: parseInt(page),
+        pages: Math.ceil(total / limit),
+        total,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching quiz submissions:', error);
+    res.status(500).json({ message: 'Error fetching submissions' });
+  }
+});
 
 // Get quiz statistics (admin/instructor only)
 router.get('/quiz/:quizId/stats', requireAuth, requireRole(['admin', 'instructor']), async (req, res) => {
@@ -70,7 +221,7 @@ router.get('/quiz/:quizId/export', requireAuth, requireRole(['admin', 'instructo
   }
 });
 
-// Start or resume a quiz attempt (enhanced)
+// Start or resume a quiz attempt
 router.post('/start', requireAuth, async (req, res) => {
   try {
     const { quizId } = req.body;
@@ -90,49 +241,41 @@ router.post('/start', requireAuth, async (req, res) => {
       return res.status(400).json({ message: 'Quiz is not published' });
     }
 
-    // Check for existing in-progress submission
-    let submission = await Submission.findOne({
+    // Check for ANY existing submission (completed, processing, or in-progress)
+    const existingSubmission = await Submission.findOne({
       quiz: quizId,
       user: req.user.userId,
-      status: { $in: ['in_progress', 'submitted', 'processing'] },
+      status: { $in: ['in_progress', 'submitted', 'processing', 'completed'] },
     });
 
-    if (submission && submission.status !== 'in_progress') {
-      return res.status(400).json({ 
-        message: 'You have already submitted this quiz and it is being processed or completed' 
-      });
-    }
-
-    if (submission) {
-      console.log('🔍 Found existing in-progress submission');
-      // Resume existing attempt
-      return res.json({
-        message: 'Resuming existing attempt',
-        submission: {
-          id: submission._id,
-          startedAt: submission.startedAt,
-          answers: submission.answers,
-          timeSpent: submission.timeSpent || 0,
-          isResuming: true,
-        },
-      });
-    }
-
-    // Check if user already completed this quiz (if single attempt)
-    const completedSubmission = await Submission.findOne({
-      quiz: quizId,
-      user: req.user.userId,
-      status: 'completed',
-    });
-
-    if (completedSubmission && quiz.allowedAttempts === 1) {
-      return res.status(400).json({ message: 'You have already completed this quiz' });
+    if (existingSubmission) {
+      // If submission is in progress, allow resume
+      if (existingSubmission.status === 'in_progress') {
+        console.log('🔍 Found existing in-progress submission');
+        return res.json({
+          message: 'Resuming existing attempt',
+          submission: {
+            id: existingSubmission._id,
+            startedAt: existingSubmission.startedAt,
+            answers: existingSubmission.answers,
+            timeSpent: existingSubmission.timeSpent || 0,
+            isResuming: true,
+          },
+        });
+      } else {
+        // For any other status (submitted, processing, completed), deny access
+        return res.status(400).json({ 
+          message: 'You have already taken this quiz. Please contact your instructor if you need to retake it.',
+          hasSubmission: true,
+          submissionStatus: existingSubmission.status
+        });
+      }
     }
 
     // Create new submission
     const maxScore = quiz.questions.reduce((sum, q) => sum + (q.points || 1), 0);
     
-    submission = new Submission({
+    const submission = new Submission({
       quiz: quizId,
       user: req.user.userId,
       answers: quiz.questions.map((question, index) => ({
@@ -168,7 +311,7 @@ router.post('/start', requireAuth, async (req, res) => {
   }
 });
 
-// Auto-save answer (enhanced)
+// Auto-save answer
 router.post('/save-answer', requireAuth, async (req, res) => {
   try {
     const { submissionId, questionId, answer, code, timeSpent } = req.body;
@@ -234,7 +377,7 @@ router.post('/save-answer', requireAuth, async (req, res) => {
   }
 });
 
-// Submit quiz (enhanced with queue integration)
+// Submit quiz
 router.post('/submit', requireAuth, async (req, res) => {
   try {
     const { submissionId, timeSpent, forceSubmit } = req.body;
@@ -291,6 +434,25 @@ router.post('/submit', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('🔍 Error submitting quiz:', error);
     res.status(500).json({ message: 'Error submitting quiz' });
+  }
+});
+
+// Delete submission (admin only)
+router.delete('/:id', requireAuth, requireRole(['admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const submission = await Submission.findById(id);
+    if (!submission) {
+      return res.status(404).json({ message: 'Submission not found' });
+    }
+    
+    await Submission.findByIdAndDelete(id);
+    
+    res.json({ message: 'Submission deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting submission:', error);
+    res.status(500).json({ message: 'Error deleting submission' });
   }
 });
 
