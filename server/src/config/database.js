@@ -22,7 +22,7 @@ export const jwtConfig = {
 export const serverConfig = {
   port: process.env.PORT || 3001,
   nodeEnv: process.env.NODE_ENV || 'development',
-  corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  corsOrigin: process.env.CORS_ORIGIN || 'http://43.250.40.133:5175',
 };
 
 export const dockerConfig = {

@@ -58,7 +58,7 @@ A comprehensive online quiz management system with rich text editing, code compi
    ```
 
 4. **Access the Application**
-   - Frontend: http://localhost:5173
+   - Frontend: http://43.250.40.133:5175
    - Backend API: http://localhost:3001/api
    - MongoDB: localhost:27017
 
