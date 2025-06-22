@@ -8,6 +8,7 @@ import QuizEditor from './components/Quiz/QuizEditor';
 import QuizTaking from './components/Quiz/QuizTaking';
 import QuizResult from './components/Quiz/QuizResult';
 import AdminDashboard from './components/Admin/AdminDashboard';
+import Analytics from './components/Analytics/Analytics';
 import Navbar from './components/Layout/Navbar';
 import { Toaster } from './components/UI/Toaster';
 
@@ -32,10 +33,19 @@ function App() {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/quizzes" element={<QuizList />} />
-            <Route path="/quiz/new" element={<QuizEditor />} />
-            <Route path="/quiz/edit/:id" element={<QuizEditor />} />
+            
+            {/* Quiz routes */}
             <Route path="/quiz/take/:id" element={<QuizTaking />} />
             <Route path="/quiz/result/:id" element={<QuizResult />} />
+            
+            {/* Instructor/Admin routes */}
+            {(user?.role === 'admin' || user?.role === 'instructor') && (
+              <>
+                <Route path="/quiz/new" element={<QuizEditor />} />
+                <Route path="/quiz/edit/:id" element={<QuizEditor />} />
+                <Route path="/analytics" element={<Analytics />} />
+              </>
+            )}
             
             {/* Admin-only routes */}
             {user?.role === 'admin' && (

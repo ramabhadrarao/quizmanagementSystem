@@ -1,4 +1,4 @@
-// src/components/Quiz/QuizTaking.tsx - Updated with submission confirmation
+// src/components/Quiz/QuizTaking.tsx - Complete updated version with submission check
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Clock, CheckCircle, AlertCircle, Code, FileText, ArrowLeft, ArrowRight, Save, Wifi, WifiOff } from 'lucide-react';
@@ -17,15 +17,17 @@ interface Answer {
 }
 
 interface SubmissionStatus {
-  hasInProgress: boolean;
+  hasSubmission: boolean;
   submission?: {
     id: string;
+    status: 'in_progress' | 'submitted' | 'processing' | 'completed';
     startedAt: string;
+    completedAt?: string;
     timeSpent: number;
-    answers: Answer[];
+    percentage?: number;
+    canResume: boolean;
+    answers?: Answer[];
   };
-  completedAttempts?: number;
-  lastAttempt?: any;
 }
 
 const QuizTaking: React.FC = () => {
@@ -39,13 +41,14 @@ const QuizTaking: React.FC = () => {
   const [totalTimeSpent, setTotalTimeSpent] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [quizStarted, setQuizStarted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<React.ReactNode>(null);
   const [submissionId, setSubmissionId] = useState<string | null>(null);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isResuming, setIsResuming] = useState(false);
   const [showSubmissionModal, setShowSubmissionModal] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(true);
 
   // Refs for intervals and timers
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -65,6 +68,84 @@ const QuizTaking: React.FC = () => {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  // Check for existing submission on load
+  useEffect(() => {
+    if (id) {
+      console.log('🔍 Checking for existing submission...');
+      setCheckingStatus(true);
+      
+      const checkSubmissionStatus = async () => {
+        try {
+          // First check if user has already taken this quiz
+          const statusResponse = await api.get(`/submissions/status/${id}`);
+          const status: SubmissionStatus = statusResponse.data;
+          
+          if (status.hasSubmission && status.submission) {
+            const submission = status.submission;
+            
+            // If quiz is completed, redirect to results
+            if (submission.status === 'completed') {
+              console.log('🔍 User has already completed this quiz, redirecting to results...');
+              toast.info('You have already completed this quiz. Showing your results.');
+              navigate(`/quiz/result/${submission.id}`, { replace: true });
+              return;
+            }
+            
+            // If quiz is being processed, also redirect to results
+            if (submission.status === 'processing' || submission.status === 'submitted') {
+              console.log('🔍 Quiz is being processed, redirecting to results...');
+              toast.info('Your quiz is being processed. Redirecting to results.');
+              navigate(`/quiz/result/${submission.id}`, { replace: true });
+              return;
+            }
+            
+            // If quiz is in progress, offer to resume
+            if (submission.status === 'in_progress' && submission.canResume) {
+              console.log('🔍 Found in-progress submission, offering to resume...');
+              
+              const shouldResume = window.confirm(
+                'You have an in-progress quiz attempt. Would you like to resume where you left off?'
+              );
+              
+              if (shouldResume) {
+                setIsResuming(true);
+                setSubmissionId(submission.id);
+                setTotalTimeSpent(submission.timeSpent || 0);
+                
+                // Fetch quiz data
+                await fetchQuiz(id);
+                
+                // Start the quiz in resume mode
+                setQuizStarted(true);
+                setAnswers(submission.answers || []);
+                timeStartRef.current = Date.now();
+              } else {
+                // User chose not to resume, go back to quiz list
+                navigate('/quizzes');
+                return;
+              }
+            }
+          } else {
+            // No existing submission, fetch quiz data normally
+            await fetchQuiz(id);
+          }
+        } catch (error) {
+          console.error('🔍 Error checking submission status:', error);
+          // If error checking status, still try to load the quiz
+          await fetchQuiz(id);
+        } finally {
+          setCheckingStatus(false);
+        }
+      };
+      
+      checkSubmissionStatus().catch(err => {
+        console.error('🔍 Error in submission status check:', err);
+        setError('Failed to load quiz. Please try again.');
+        setCheckingStatus(false);
+      });
+    }
+  }, [id, fetchQuiz, navigate]);
 
   // Auto-save function
   const autoSave = useCallback(async (questionId: string, answer: string | number, code?: string) => {
@@ -102,48 +183,6 @@ const QuizTaking: React.FC = () => {
       autoSave(questionId, answer, code);
     }, 2000);
   }, [autoSave]);
-
-  // Check for existing submission on load
-  useEffect(() => {
-    if (id) {
-      console.log('🔍 Checking for existing submission...');
-      
-      const checkSubmissionStatus = async () => {
-        try {
-          const response = await api.get(`/submissions/status/${id}`);
-          const status: SubmissionStatus = response.data;
-          
-          if (status.hasInProgress && status.submission) {
-            console.log('🔍 Found in-progress submission, offering to resume...');
-            
-            const shouldResume = window.confirm(
-              'You have an in-progress quiz attempt. Would you like to resume where you left off?'
-            );
-            
-            if (shouldResume) {
-              setIsResuming(true);
-              setSubmissionId(status.submission.id);
-              setTotalTimeSpent(status.submission.timeSpent);
-              setAnswers(status.submission.answers);
-              
-              await fetchQuiz(id);
-            } else {
-              toast.info('Starting a new attempt...');
-            }
-          }
-        } catch (error) {
-          console.error('🔍 Error checking submission status:', error);
-        }
-      };
-      
-      fetchQuiz(id).then(() => {
-        checkSubmissionStatus();
-      }).catch(err => {
-        console.error('🔍 Error fetching quiz:', err);
-        setError('Failed to load quiz. Please try again.');
-      });
-    }
-  }, [id, fetchQuiz]);
 
   // Timer management
   useEffect(() => {
@@ -236,7 +275,30 @@ const QuizTaking: React.FC = () => {
       
     } catch (error: any) {
       console.error('🔍 Error starting quiz:', error);
-      toast.error(error.response?.data?.message || 'Failed to start quiz');
+      
+      if (error.response?.data?.hasSubmission) {
+        // User has already taken this quiz
+        const submissionId = error.response.data.submissionId;
+        
+        if (submissionId) {
+          toast.error('You have already taken this quiz. Redirecting to your results...');
+          setTimeout(() => {
+            navigate(`/quiz/result/${submissionId}`, { replace: true });
+          }, 2000);
+        } else {
+          setError(
+            <div>
+              <p className="mb-4">{error.response.data.message}</p>
+              <p className="text-sm">
+                If you believe this is an error, please contact your instructor or administrator.
+              </p>
+            </div>
+          );
+        }
+      } else {
+        toast.error(error.response?.data?.message || 'Failed to start quiz');
+        setError(error.response?.data?.message || 'Failed to start quiz');
+      }
     }
   };
 
@@ -301,11 +363,11 @@ const QuizTaking: React.FC = () => {
       if (timerRef.current) clearTimeout(timerRef.current);
       if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
       
-      // Navigate to result page or dashboard based on submission status
+      // Navigate to result page
       const submission = response.data.submission;
-      if (submission && submission.queueJobId) {
-        // Quiz is being processed, show processing page
-        navigate(`/quiz/result/${submissionId}`, { 
+      if (submission && submission.id) {
+        navigate(`/quiz/result/${submission.id}`, { 
+          replace: true,
           state: { 
             processing: true, 
             message: 'Your quiz is being graded. Results will be available shortly.' 
@@ -348,12 +410,14 @@ const QuizTaking: React.FC = () => {
   };
 
   // Loading state
-  if (loading) {
+  if (loading || checkingStatus) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading quiz...</p>
+          <p className="text-gray-600">
+            {checkingStatus ? 'Checking quiz status...' : 'Loading quiz...'}
+          </p>
         </div>
       </div>
     );
@@ -363,14 +427,14 @@ const QuizTaking: React.FC = () => {
   if (error || !currentQuiz) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
+        <div className="text-center max-w-md">
           <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-4">
-            {error || 'Quiz Not Found'}
+            Unable to Access Quiz
           </h2>
-          <p className="text-gray-600 mb-4">
+          <div className="text-gray-600 mb-6">
             {error || 'The quiz you are looking for does not exist or has been removed.'}
-          </p>
+          </div>
           <Button onClick={() => navigate('/quizzes')}>
             Back to Quizzes
           </Button>
@@ -385,66 +449,90 @@ const QuizTaking: React.FC = () => {
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="max-w-2xl w-full">
           <div className="bg-white/80 backdrop-blur-lg rounded-2xl shadow-xl border border-white/20 p-8 text-center">
-            <div className="w-16 h-16 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6">
-              <FileText className="w-8 h-8 text-white" />
-            </div>
-            
-            <h1 className="text-3xl font-bold text-gray-900 mb-4">
-              {currentQuiz.title}
-            </h1>
-            
-            <p className="text-gray-600 mb-8">
-              {currentQuiz.description}
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-              <div className="bg-blue-50 rounded-lg p-4">
-                <FileText className="w-6 h-6 text-blue-600 mx-auto mb-2" />
-                <div className="text-2xl font-bold text-blue-900 mb-1">
-                  {currentQuiz.questions?.length || 0}
+            {error ? (
+              // Show error state
+              <>
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <AlertCircle className="w-8 h-8 text-red-600" />
                 </div>
-                <div className="text-sm text-blue-700">Questions</div>
-              </div>
-              
-              <div className="bg-purple-50 rounded-lg p-4">
-                <Clock className="w-6 h-6 text-purple-600 mx-auto mb-2" />
-                <div className="text-2xl font-bold text-purple-900 mb-1">
-                  {currentQuiz.timeLimit}
+                
+                <h2 className="text-2xl font-bold text-gray-900 mb-4">
+                  Unable to Start Quiz
+                </h2>
+                
+                <div className="text-gray-600 mb-8">
+                  {error}
                 </div>
-                <div className="text-sm text-purple-700">Minutes</div>
-              </div>
-              
-              <div className="bg-green-50 rounded-lg p-4">
-                <CheckCircle className="w-6 h-6 text-green-600 mx-auto mb-2" />
-                <div className="text-2xl font-bold text-green-900 mb-1">
-                  {currentQuiz.questions?.reduce((sum, q) => sum + (q.points || 0), 0) || 0}
+                
+                <Button onClick={() => navigate('/quizzes')}>
+                  Back to Quizzes
+                </Button>
+              </>
+            ) : (
+              // Show quiz start screen
+              <>
+                <div className="w-16 h-16 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <FileText className="w-8 h-8 text-white" />
                 </div>
-                <div className="text-sm text-green-700">Points</div>
-              </div>
-            </div>
+                
+                <h1 className="text-3xl font-bold text-gray-900 mb-4">
+                  {currentQuiz.title}
+                </h1>
+                
+                <p className="text-gray-600 mb-8">
+                  {currentQuiz.description}
+                </p>
 
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-8">
-              <AlertCircle className="w-5 h-5 text-yellow-600 inline mr-2" />
-              <span className="text-sm text-yellow-800">
-                Your progress will be automatically saved. You can log out and resume later if needed.
-              </span>
-            </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                  <div className="bg-blue-50 rounded-lg p-4">
+                    <FileText className="w-6 h-6 text-blue-600 mx-auto mb-2" />
+                    <div className="text-2xl font-bold text-blue-900 mb-1">
+                      {currentQuiz.questions?.length || 0}
+                    </div>
+                    <div className="text-sm text-blue-700">Questions</div>
+                  </div>
+                  
+                  <div className="bg-purple-50 rounded-lg p-4">
+                    <Clock className="w-6 h-6 text-purple-600 mx-auto mb-2" />
+                    <div className="text-2xl font-bold text-purple-900 mb-1">
+                      {currentQuiz.timeLimit}
+                    </div>
+                    <div className="text-sm text-purple-700">Minutes</div>
+                  </div>
+                  
+                  <div className="bg-green-50 rounded-lg p-4">
+                    <CheckCircle className="w-6 h-6 text-green-600 mx-auto mb-2" />
+                    <div className="text-2xl font-bold text-green-900 mb-1">
+                      {currentQuiz.questions?.reduce((sum, q) => sum + (q.points || 0), 0) || 0}
+                    </div>
+                    <div className="text-sm text-green-700">Points</div>
+                  </div>
+                </div>
 
-            <div className="flex justify-center gap-4">
-              <Button
-                variant="outline"
-                onClick={() => navigate('/quizzes')}
-              >
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back to Quizzes
-              </Button>
-              <Button
-                onClick={startQuiz}
-                size="lg"
-              >
-                {isResuming ? 'Resume Quiz' : 'Start Quiz'}
-              </Button>
-            </div>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-8">
+                  <AlertCircle className="w-5 h-5 text-yellow-600 inline mr-2" />
+                  <span className="text-sm text-yellow-800">
+                    Your progress will be automatically saved. You can only take this quiz once.
+                  </span>
+                </div>
+
+                <div className="flex justify-center gap-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => navigate('/quizzes')}
+                  >
+                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    Back to Quizzes
+                  </Button>
+                  <Button
+                    onClick={startQuiz}
+                    size="lg"
+                  >
+                    {isResuming ? 'Resume Quiz' : 'Start Quiz'}
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

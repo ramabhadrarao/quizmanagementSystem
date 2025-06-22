@@ -1,6 +1,6 @@
-// src/components/Quiz/QuizResult.tsx
+// src/components/Quiz/QuizResult.tsx - Updated with proper processing state handling
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { 
   CheckCircle, 
   XCircle, 
@@ -12,7 +12,8 @@ import {
   Award,
   TrendingUp,
   Eye,
-  EyeOff
+  EyeOff,
+  Loader
 } from 'lucide-react';
 import Button from '../UI/Button';
 import api from '../../services/api';
@@ -55,42 +56,70 @@ interface QuizResultData {
   percentage: number;
   timeSpent: number;
   completedAt: string;
-  status: 'completed' | 'processing' | 'error';
+  status: 'completed' | 'processing' | 'submitted' | 'error';
 }
 
 const QuizResult: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [result, setResult] = useState<QuizResultData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAnswers, setShowAnswers] = useState(false);
   const [expandedQuestions, setExpandedQuestions] = useState<Set<string>>(new Set());
+  const [pollCount, setPollCount] = useState(0);
+  const maxPollAttempts = 60; // 5 minutes with 5-second intervals
 
   useEffect(() => {
     if (id) {
       fetchResult();
-      // Poll for updates if result is still processing
-      const interval = setInterval(() => {
-        if (result?.status === 'processing') {
-          fetchResult();
-        }
-      }, 3000);
-
-      return () => clearInterval(interval);
     }
-  }, [id, result?.status]);
+  }, [id]);
 
-  const fetchResult = async () => {
+  useEffect(() => {
+    // Set up polling for processing status
+    let pollInterval: NodeJS.Timeout | null = null;
+
+    if (result && (result.status === 'processing' || result.status === 'submitted')) {
+      pollInterval = setInterval(() => {
+        if (pollCount < maxPollAttempts) {
+          fetchResult(true); // Silent fetch during polling
+          setPollCount(prev => prev + 1);
+        } else {
+          // Stop polling after max attempts
+          if (pollInterval) clearInterval(pollInterval);
+          setError('Processing is taking longer than expected. Please refresh the page.');
+        }
+      }, 5000); // Poll every 5 seconds
+    }
+
+    return () => {
+      if (pollInterval) clearInterval(pollInterval);
+    };
+  }, [result?.status, pollCount]);
+
+  const fetchResult = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
+      
       const response = await api.get(`/submissions/${id}`);
-      setResult(response.data);
+      const data = response.data;
+      
+      setResult(data);
+      
+      // Reset poll count if status changed to completed
+      if (data.status === 'completed') {
+        setPollCount(0);
+      }
+      
       setError(null);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to load quiz result');
+      if (!silent) {
+        setError(err.response?.data?.message || 'Failed to load quiz result');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -126,6 +155,19 @@ const QuizResult: React.FC = () => {
     return 'F';
   };
 
+  const getProcessingMessage = () => {
+    const messages = [
+      'Evaluating your answers...',
+      'Running test cases...',
+      'Calculating your score...',
+      'Almost there...',
+      'Processing code submissions...',
+      'Finalizing results...'
+    ];
+    const index = Math.min(Math.floor(pollCount / 3), messages.length - 1);
+    return messages[index];
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -153,27 +195,86 @@ const QuizResult: React.FC = () => {
     );
   }
 
-  if (result.status === 'processing') {
+  // Show processing state
+  if (result.status === 'processing' || result.status === 'submitted') {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center max-w-md">
-          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-6"></div>
+          <div className="relative mb-8">
+            <div className="w-24 h-24 border-4 border-blue-200 rounded-full mx-auto"></div>
+            <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-24 h-24 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            <Loader className="w-10 h-10 text-blue-600 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2" />
+          </div>
+          
           <h2 className="text-2xl font-bold text-gray-900 mb-4">
             Processing Your Results
           </h2>
-          <p className="text-gray-600 mb-6">
-            We're evaluating your code submissions and calculating your final score. 
-            This may take a few moments.
-          </p>
-          <Button onClick={fetchResult} variant="outline">
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Check Again
-          </Button>
+          
+          <div className="mb-6">
+            <p className="text-gray-600 mb-2">{getProcessingMessage()}</p>
+            <p className="text-sm text-gray-500">
+              This may take a few moments, especially for code questions.
+            </p>
+          </div>
+
+          {/* Progress indicator */}
+          <div className="w-full bg-gray-200 rounded-full h-2 mb-6">
+            <div
+              className="bg-blue-600 h-2 rounded-full transition-all duration-1000"
+              style={{
+                width: `${Math.min((pollCount / 12) * 100, 90)}%`
+              }}
+            />
+          </div>
+
+          <div className="space-y-3">
+            <Button onClick={() => fetchResult()} variant="outline">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Check Status
+            </Button>
+            
+            {pollCount > 20 && (
+              <p className="text-sm text-yellow-600">
+                ⚠️ Processing is taking longer than usual. Your code might be complex or the server might be busy.
+              </p>
+            )}
+          </div>
         </div>
       </div>
     );
   }
 
+  // Show error state
+  if (result.status === 'error') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <XCircle className="w-8 h-8 text-red-600" />
+          </div>
+          
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">
+            Processing Error
+          </h2>
+          
+          <p className="text-gray-600 mb-6">
+            There was an error processing your quiz submission. This might be due to a temporary issue with our servers.
+          </p>
+          
+          <div className="space-y-3">
+            <Button onClick={() => navigate('/dashboard')}>
+              Back to Dashboard
+            </Button>
+            <p className="text-sm text-gray-500">
+              Please contact your instructor if this issue persists.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show completed results
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}

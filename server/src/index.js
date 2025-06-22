@@ -1,4 +1,4 @@
-// server/src/index.js - Updated to remove embedded code execution service
+// server/src/index.js - Complete server setup with analytics
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
@@ -8,6 +8,7 @@ import quizRoutes from './routes/quizzes.js';
 import submissionRoutes from './routes/submissions.js';
 import codeExecutionRoutes from './routes/codeExecution.js';
 import dashboardRoutes from './routes/dashboard.js';
+import analyticsRoutes from './routes/analytics.js';
 import healthRoutes from './routes/health.js';
 import { checkCodeExecutionHealth } from './services/codeExecution.js';
 
@@ -60,6 +61,7 @@ app.use('/api/quizzes', quizRoutes);
 app.use('/api/submissions', submissionRoutes);
 app.use('/api/code', codeExecutionRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/analytics', analyticsRoutes);
 app.use('/api', healthRoutes);
 
 // Legacy health check endpoint (for backward compatibility)
