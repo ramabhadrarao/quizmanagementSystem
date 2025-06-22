@@ -23,10 +23,13 @@ export interface Quiz {
   id: string;
   title: string;
   description: string;
+  quizCode?: string;
   questions: Question[];
   timeLimit: number;
   isPublished: boolean;
   createdBy: string;
+  startDate?: string;
+  endDate?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -38,7 +41,7 @@ interface QuizState {
   error: string | null;
   fetchQuizzes: () => Promise<void>;
   fetchQuiz: (id: string) => Promise<void>;
-  createQuiz: (quiz: Omit<Quiz, 'id' | 'createdAt' | 'updatedAt' | 'createdBy'>) => Promise<void>;
+  createQuiz: (quiz: Omit<Quiz, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'quizCode'>) => Promise<void>;
   updateQuiz: (id: string, quiz: Partial<Quiz>) => Promise<void>;
   deleteQuiz: (id: string) => Promise<void>;
   clearError: () => void;

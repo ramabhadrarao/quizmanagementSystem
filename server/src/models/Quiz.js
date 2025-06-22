@@ -64,6 +64,14 @@ const quizSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  quizCode: {
+    type: String,
+    required: true,
+    unique: true,
+    uppercase: true,
+    trim: true,
+    index: true,
+  },
   questions: [questionSchema],
   timeLimit: {
     type: Number,
@@ -92,6 +100,22 @@ const quizSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  startDate: {
+    type: Date,
+    default: null,
+  },
+  endDate: {
+    type: Date,
+    default: null,
+  },
+  requiresAuthentication: {
+    type: Boolean,
+    default: true,
+  },
+  allowedUsers: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  }],
 }, {
   timestamps: true,
 });
@@ -99,5 +123,28 @@ const quizSchema = new mongoose.Schema({
 // Index for better query performance
 quizSchema.index({ createdBy: 1, isPublished: 1 });
 quizSchema.index({ title: 'text', description: 'text' });
+quizSchema.index({ quizCode: 1 });
+
+// Generate unique quiz code
+quizSchema.statics.generateUniqueCode = async function() {
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code;
+  let isUnique = false;
+  
+  while (!isUnique) {
+    code = '';
+    for (let i = 0; i < 6; i++) {
+      code += characters.charAt(Math.floor(Math.random() * characters.length));
+    }
+    
+    // Check if code already exists
+    const existing = await this.findOne({ quizCode: code });
+    if (!existing) {
+      isUnique = true;
+    }
+  }
+  
+  return code;
+};
 
 export default mongoose.model('Quiz', quizSchema);

@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { FileText, Users, TrendingUp, Clock, Plus, Eye, BarChart3 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { FileText, Users, TrendingUp, Clock, Plus, Eye, BarChart3, Key, CheckCircle } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import { useQuizStore } from '../../stores/quizStore';
 import Button from '../UI/Button';
 import api from '../../services/api';
+import QuizCodeModal from '../Quiz/QuizCodeModal';
 
 interface DashboardStats {
   totalQuizzes: number;
@@ -21,6 +22,7 @@ interface RecentActivity {
 }
 
 const Dashboard: React.FC = () => {
+  const navigate = useNavigate();
   const { user } = useAuthStore();
   const { quizzes, fetchQuizzes } = useQuizStore();
   const [stats, setStats] = useState<DashboardStats>({
@@ -32,6 +34,8 @@ const Dashboard: React.FC = () => {
   const [activities, setActivities] = useState<RecentActivity[]>([]);
   const [loadingStats, setLoadingStats] = useState(true);
   const [loadingActivities, setLoadingActivities] = useState(true);
+  const [showQuizCodeModal, setShowQuizCodeModal] = useState(false);
+  const [selectedQuizId, setSelectedQuizId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchQuizzes();
@@ -70,6 +74,35 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const handleQuizClick = (quizId: string, userSubmission?: any) => {
+    if (user?.role === 'student') {
+      if (userSubmission?.status === 'completed') {
+        // If already completed, go to results
+        navigate(`/quiz/result/${userSubmission.id}`);
+      } else if (userSubmission?.status === 'in_progress') {
+        // If in progress, resume
+        navigate(`/quiz/take/${quizId}`);
+      } else {
+        // If not started, ask for quiz code
+        setSelectedQuizId(quizId);
+        setShowQuizCodeModal(true);
+      }
+    } else {
+      // For instructors/admins, go directly to preview
+      navigate(`/quiz/take/${quizId}`);
+    }
+  };
+
+  const handleQuizCodeSuccess = (verifiedQuizId: string) => {
+    // Verify that the entered code matches the selected quiz
+    if (verifiedQuizId === selectedQuizId) {
+      navigate(`/quiz/take/${verifiedQuizId}`);
+    } else {
+      // This shouldn't happen, but handle it gracefully
+      navigate(`/quiz/take/${verifiedQuizId}`);
+    }
+  };
+
   const statCards = [
     {
       title: 'Total Quizzes',
@@ -101,8 +134,7 @@ const Dashboard: React.FC = () => {
     },
   ];
 
-  const recentQuizzes = quizzes.slice(0, 5);
-
+  const availableQuizzes = quizzes.filter(quiz => quiz.isPublished);
   const canEdit = user?.role === 'admin' || user?.role === 'instructor';
   const canViewAnalytics = user?.role === 'admin' || user?.role === 'instructor';
 
@@ -173,31 +205,50 @@ const Dashboard: React.FC = () => {
             {user?.role === 'student' ? (
               // Show available quizzes for students
               <div className="space-y-4">
-                {recentQuizzes.length > 0 ? (
-                  recentQuizzes.filter(quiz => quiz.isPublished).map((quiz) => (
-                    <div
-                      key={quiz.id}
-                      className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                    >
-                      <div className="flex-1">
-                        <h3 className="font-medium text-gray-900 mb-1">
-                          {quiz.title}
-                        </h3>
-                        <p className="text-sm text-gray-600">
-                          {quiz.questions.length} questions • {quiz.timeLimit} min
-                        </p>
-                      </div>
-                      <Link to={`/quiz/take/${quiz.id}`}>
-                        <Button variant="outline" size="sm">
-                          Take Quiz
+                {availableQuizzes.length > 0 ? (
+                  availableQuizzes.slice(0, 5).map((quiz) => {
+                    const userSubmission = quiz.userSubmission;
+                    const isCompleted = userSubmission?.status === 'completed';
+                    const isInProgress = userSubmission?.status === 'in_progress';
+                    
+                    return (
+                      <div
+                        key={quiz.id}
+                        className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+                        onClick={() => handleQuizClick(quiz.id, userSubmission)}
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-medium text-gray-900">
+                              {quiz.title}
+                            </h3>
+                            {isCompleted && (
+                              <CheckCircle className="w-4 h-4 text-green-600" />
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-600">
+                            {quiz.questions.length} questions • {quiz.timeLimit} min
+                            {isCompleted && ` • Score: ${userSubmission.percentage}%`}
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleQuizClick(quiz.id, userSubmission);
+                          }}
+                        >
+                          {isCompleted ? 'View Results' : isInProgress ? 'Resume' : 'Take Quiz'}
                         </Button>
-                      </Link>
-                    </div>
-                  ))
+                      </div>
+                    );
+                  })
                 ) : (
                   <div className="text-center py-8">
                     <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                     <p className="text-gray-500">No quizzes available yet</p>
+                    <p className="text-sm text-gray-400 mt-2">Ask your instructor for a quiz code</p>
                   </div>
                 )}
               </div>
@@ -259,6 +310,19 @@ const Dashboard: React.FC = () => {
             <h2 className="text-xl font-semibold text-gray-900 mb-6">Quick Actions</h2>
             
             <div className="space-y-3">
+              {user?.role === 'student' && (
+                <Button
+                  className="w-full justify-start"
+                  onClick={() => {
+                    setSelectedQuizId(null);
+                    setShowQuizCodeModal(true);
+                  }}
+                >
+                  <Key className="w-4 h-4 mr-3" />
+                  Enter Quiz Code
+                </Button>
+              )}
+              
               {canEdit && (
                 <Link to="/quiz/new" className="block">
                   <Button className="w-full justify-start">
@@ -299,13 +363,23 @@ const Dashboard: React.FC = () => {
               <h3 className="font-medium text-blue-900 mb-2">💡 Pro Tip</h3>
               <p className="text-sm text-blue-800">
                 {user?.role === 'student' 
-                  ? 'Review your quiz results to identify areas for improvement and track your progress over time.'
+                  ? 'You can see available quizzes here. Click on any quiz to enter its code and start!'
                   : 'Use the analytics dashboard to track student performance and identify challenging questions.'}
               </p>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Quiz Code Modal */}
+      <QuizCodeModal
+        isOpen={showQuizCodeModal}
+        onClose={() => {
+          setShowQuizCodeModal(false);
+          setSelectedQuizId(null);
+        }}
+        onSuccess={handleQuizCodeSuccess}
+      />
     </div>
   );
 };

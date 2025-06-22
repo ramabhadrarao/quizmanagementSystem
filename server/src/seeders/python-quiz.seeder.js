@@ -1,4 +1,4 @@
-// server/src/seeders/python-quiz.seeder.js
+// server/src/seeders/python-basic-quiz.seeder.js
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import Quiz from '../models/Quiz.js';
@@ -7,131 +7,190 @@ import User from '../models/User.js';
 // Load environment variables
 dotenv.config();
 
-// Python Programming Quiz Data - 5 Questions
-const pythonQuiz = {
-  title: 'Python Programming Fundamentals Quiz',
-  description: 'Comprehensive assessment of Python programming skills covering syntax, data structures, control flow, and problem-solving techniques.',
-  timeLimit: 35, // 35 minutes for 5 questions
+// Python Basic Level 1 Quiz Data
+const pythonBasicQuiz = {
+  title: 'Python Basics Level 1 - Introduction to Programming',
+  description: 'Test your knowledge of Python fundamentals including variables, data types, basic operators, and simple input/output operations. Perfect for beginners!',
+  timeLimit: 30, // 30 minutes for 10 questions
   isPublished: true,
-  allowedAttempts: 2,
+  allowedAttempts: 3,
   showResults: true,
   randomizeQuestions: false,
+  startDate: null, // Available immediately
+  endDate: null, // No end date
   questions: [
     // Question 1: Multiple Choice - Python Basics
     {
       type: 'multiple-choice',
-      title: 'Python Data Types',
-      content: '<p>Which of the following is a mutable data type in Python?</p>',
+      title: 'Python Print Statement',
+      content: '<p>Which of the following is the correct way to print "Hello, World!" in Python?</p>',
       options: [
-        'tuple',
-        'string',
-        'list',
-        'integer'
+        'print("Hello, World!")',
+        'echo "Hello, World!"',
+        'printf("Hello, World!")',
+        'console.log("Hello, World!")'
       ],
-      correctAnswer: 2, // list
-      points: 2
+      correctAnswer: 0,
+      points: 1
     },
 
-    // Question 2: Code - Basic Python Program
+    // Question 2: Multiple Choice - Variables
+    {
+      type: 'multiple-choice',
+      title: 'Variable Assignment',
+      content: '<p>Which of the following is a valid variable name in Python?</p>',
+      options: [
+        '2myvar',
+        'my-var',
+        'my_var',
+        'my var'
+      ],
+      correctAnswer: 2,
+      points: 1
+    },
+
+    // Question 3: Code - Basic Print
     {
       type: 'code',
-      title: 'Hello World in Python',
-      content: '<p>Write a Python program that prints "Hello, Python!" to the console.</p><p><strong>Requirements:</strong></p><ul><li>Print exactly: Hello, Python!</li><li>Use the print() function</li></ul>',
+      title: 'Your First Python Program',
+      content: '<p>Write a Python program that prints exactly: <strong>Welcome to Python!</strong></p><p>Note: The output should match exactly, including capitalization and punctuation.</p>',
       language: 'python',
       testCases: [
         {
-          input: ' ',
-          expectedOutput: 'Hello, Python!',
+          input: ' ',  // Space character for no input
+          expectedOutput: 'Welcome to Python!',
           isHidden: false
         }
       ],
-      starterCode: '# Write your Python code here\n',
+      starterCode: '# Write your code here\n',
       points: 2
     },
 
-    // Question 3: Multiple Choice - Python Lists
+    // Question 4: Multiple Choice - Data Types
     {
       type: 'multiple-choice',
-      title: 'List Operations in Python',
-      content: '<p>What is the output of the following Python code?</p><pre><code>my_list = [1, 2, 3, 4, 5]\nprint(my_list[1:4])</code></pre>',
+      title: 'Python Data Types',
+      content: '<p>What is the data type of the value <code>42</code> in Python?</p>',
       options: [
-        '[1, 2, 3]',
-        '[2, 3, 4]',
-        '[1, 2, 3, 4]',
-        '[2, 3, 4, 5]'
+        'str',
+        'int',
+        'float',
+        'bool'
       ],
-      correctAnswer: 1, // [2, 3, 4]
+      correctAnswer: 1,
+      points: 1
+    },
+
+    // Question 5: Multiple Choice - String Quotes
+    {
+      type: 'multiple-choice',
+      title: 'String Declaration',
+      content: '<p>Which of the following is NOT a valid way to create a string in Python?</p>',
+      options: [
+        'name = "Python"',
+        "name = 'Python'",
+        'name = """Python"""',
+        'name = <Python>'
+      ],
+      correctAnswer: 3,
+      points: 1
+    },
+
+    // Question 6: Code - Simple Variable
+    {
+      type: 'code',
+      title: 'Working with Variables',
+      content: '<p>Create a variable called <code>age</code> and assign it the value <code>25</code>. Then print the value of the variable.</p><p><strong>Expected output:</strong> 25</p>',
+      language: 'python',
+      testCases: [
+        {
+          input: ' ',  // Space character for no input
+          expectedOutput: '25',
+          isHidden: false
+        }
+      ],
+      starterCode: '# Create a variable called age and print it\n',
+      points: 2
+    },
+
+    // Question 7: Multiple Choice - Basic Math
+    {
+      type: 'multiple-choice',
+      title: 'Basic Arithmetic',
+      content: '<p>What will be the output of the following Python code?</p><pre><code>x = 10\ny = 3\nprint(x + y)</code></pre>',
+      options: [
+        '7',
+        '13',
+        '30',
+        'Error'
+      ],
+      correctAnswer: 1,
+      points: 1
+    },
+
+    // Question 8: Code - String Concatenation
+    {
+      type: 'code',
+      title: 'String Concatenation',
+      content: '<p>Write a Python program that creates two variables:</p><ul><li><code>first_name</code> with value "John"</li><li><code>last_name</code> with value "Doe"</li></ul><p>Then print them together with a space between them.</p><p><strong>Expected output:</strong> John Doe</p>',
+      language: 'python',
+      testCases: [
+        {
+          input: ' ',  // Space character for no input
+          expectedOutput: 'John Doe',
+          isHidden: false
+        }
+      ],
+      starterCode: '# Create first_name and last_name variables\n# Print them together with a space\n',
       points: 3
     },
 
-    // Question 4: Code - Function and Loop
+    // Question 9: Multiple Choice - Comments
     {
-      type: 'code',
-      title: 'Sum of Numbers Function',
-      content: '<p>Write a Python function that takes a positive integer n as input and returns the sum of all numbers from 1 to n (inclusive).</p><p><strong>Function name:</strong> sum_numbers</p><p><strong>Input:</strong> A positive integer n</p><p><strong>Output:</strong> Sum of numbers from 1 to n</p><p><strong>Example:</strong><br>Input: 5<br>Output: 15 (because 1+2+3+4+5 = 15)</p>',
-      language: 'python',
-      testCases: [
-        {
-          input: '5',
-          expectedOutput: '15',
-          isHidden: false
-        },
-        {
-          input: '1',
-          expectedOutput: '1',
-          isHidden: false
-        },
-        {
-          input: '10',
-          expectedOutput: '55',
-          isHidden: true
-        },
-        {
-          input: '3',
-          expectedOutput: '6',
-          isHidden: true
-        }
+      type: 'multiple-choice',
+      title: 'Python Comments',
+      content: '<p>How do you write a single-line comment in Python?</p>',
+      options: [
+        '// This is a comment',
+        '<!-- This is a comment -->',
+        '# This is a comment',
+        '/* This is a comment */'
       ],
-      starterCode: 'def sum_numbers(n):\n    # Calculate sum from 1 to n\n    pass\n\n# Test your function\nn = int(input())\nresult = sum_numbers(n)\nprint(result)',
-      points: 4
+      correctAnswer: 2,
+      points: 1
     },
 
-    // Question 5: Code - List Processing
+    // Question 10: Code - Simple Input/Output
     {
       type: 'code',
-      title: 'Find Maximum Element',
-      content: '<p>Write a Python program that finds and prints the maximum element in a list of integers.</p><p><strong>Input Format:</strong><br>Line 1: Number of elements (n)<br>Line 2: n space-separated integers</p><p><strong>Output:</strong> The maximum element</p><p><strong>Example:</strong><br>Input:<br>5<br>10 25 3 40 15<br>Output: 40</p>',
+      title: 'Basic Input and Output',
+      content: '<p>Write a Python program that:</p><ol><li>Reads a name from input</li><li>Prints: Hello, [name]!</li></ol><p><strong>Example:</strong><br>Input: Alice<br>Output: Hello, Alice!</p>',
       language: 'python',
       testCases: [
         {
-          input: '5\n10 25 3 40 15',
-          expectedOutput: '40',
+          input: 'Alice',
+          expectedOutput: 'Hello, Alice!',
           isHidden: false
         },
         {
-          input: '3\n-5 -10 -1',
-          expectedOutput: '-1',
+          input: 'Bob',
+          expectedOutput: 'Hello, Bob!',
           isHidden: false
         },
         {
-          input: '4\n100 200 50 150',
-          expectedOutput: '200',
-          isHidden: true
-        },
-        {
-          input: '1\n42',
-          expectedOutput: '42',
+          input: 'Python',
+          expectedOutput: 'Hello, Python!',
           isHidden: true
         }
       ],
-      starterCode: '# Read input\nn = int(input())\nnumbers = list(map(int, input().split()))\n\n# Find maximum element\n# Your code here',
-      points: 5
+      starterCode: '# Read a name and print a greeting\n',
+      points: 3
     }
   ]
 };
 
 // Seeder function
-async function seedPythonQuiz() {
+async function seedPythonBasicQuiz() {
   try {
     // Connect to MongoDB
     await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/quiz-system');
@@ -152,10 +211,10 @@ async function seedPythonQuiz() {
     console.log(`Using ${instructor.name} (${instructor.role}) as quiz creator`);
 
     // Check if a similar quiz already exists
-    const existingQuiz = await Quiz.findOne({ title: pythonQuiz.title });
+    const existingQuiz = await Quiz.findOne({ title: pythonBasicQuiz.title });
     
     if (existingQuiz) {
-      const response = await promptUser('A Python Programming quiz already exists. Do you want to replace it? (yes/no): ');
+      const response = await promptUser('A quiz with this title already exists. Do you want to replace it? (yes/no): ');
       
       if (response.toLowerCase() !== 'yes') {
         console.log('Seeding cancelled.');
@@ -163,48 +222,71 @@ async function seedPythonQuiz() {
       }
       
       await Quiz.deleteOne({ _id: existingQuiz._id });
-      console.log('Existing Python quiz deleted.');
+      console.log('Existing quiz deleted.');
     }
 
-    // Create the quiz
+    // Generate unique quiz code
+    const quizCode = await Quiz.generateUniqueCode();
+
+    // Create the quiz with the generated code
     const quiz = new Quiz({
-      ...pythonQuiz,
+      ...pythonBasicQuiz,
+      quizCode,
       createdBy: instructor._id
     });
 
     await quiz.save();
 
-    console.log('\n✅ Python Programming Quiz created successfully!');
-    console.log('\nQuiz Details:');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`Title: ${quiz.title}`);
-    console.log(`Questions: ${quiz.questions.length}`);
-    console.log(`Time Limit: ${quiz.timeLimit} minutes`);
-    console.log(`Created by: ${instructor.name}`);
-    console.log(`Published: ${quiz.isPublished ? 'Yes' : 'No'}`);
+    console.log('\n✅ Python Basic Level 1 Quiz created successfully!');
+    console.log('\n' + '='.repeat(60));
+    console.log('QUIZ DETAILS');
+    console.log('='.repeat(60));
+    console.log(`📚 Title: ${quiz.title}`);
+    console.log(`📝 Description: ${quiz.description}`);
+    console.log(`🔑 Quiz Code: ${quiz.quizCode} (Share this with students!)`);
+    console.log(`❓ Questions: ${quiz.questions.length}`);
+    console.log(`⏱️  Time Limit: ${quiz.timeLimit} minutes`);
+    console.log(`👤 Created by: ${instructor.name}`);
+    console.log(`📊 Status: ${quiz.isPublished ? 'Published' : 'Draft'}`);
+    console.log(`🔄 Allowed Attempts: ${quiz.allowedAttempts}`);
     
-    console.log('\nQuestion Breakdown:');
+    console.log('\n📋 QUESTION BREAKDOWN:');
+    console.log('-'.repeat(60));
+    
     const mcCount = quiz.questions.filter(q => q.type === 'multiple-choice').length;
     const codeCount = quiz.questions.filter(q => q.type === 'code').length;
     const totalPoints = quiz.questions.reduce((sum, q) => sum + q.points, 0);
     
-    console.log(`- Multiple Choice Questions: ${mcCount}`);
-    console.log(`- Code Challenge Questions: ${codeCount}`);
-    console.log(`- Total Points: ${totalPoints}`);
+    console.log(`📌 Multiple Choice Questions: ${mcCount}`);
+    console.log(`💻 Coding Questions: ${codeCount}`);
+    console.log(`🎯 Total Points: ${totalPoints}`);
     
-    console.log('\nQuestions:');
+    console.log('\n📑 QUESTIONS LIST:');
+    console.log('-'.repeat(60));
     quiz.questions.forEach((q, index) => {
-      console.log(`${index + 1}. ${q.title} (${q.type}) - ${q.points} points`);
+      const icon = q.type === 'code' ? '💻' : '📌';
+      console.log(`${icon} ${index + 1}. ${q.title} (${q.points} points)`);
     });
     
-    console.log('\nTopic Coverage:');
-    console.log('- Data Types and Variables');
-    console.log('- List Operations and Slicing');
-    console.log('- Functions and Control Flow');
-    console.log('- Input/Output Operations');
-    console.log('- Basic Algorithm Implementation');
+    console.log('\n🎓 DIFFICULTY LEVEL: Beginner');
+    console.log('📚 TOPICS COVERED:');
+    console.log('   • Print statements and output');
+    console.log('   • Variables and assignment');
+    console.log('   • Basic data types (int, str)');
+    console.log('   • String operations');
+    console.log('   • Comments');
+    console.log('   • Basic input/output');
+    console.log('   • Simple arithmetic operations');
     
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('\n' + '='.repeat(60));
+    console.log('💡 INSTRUCTIONS FOR INSTRUCTORS:');
+    console.log('='.repeat(60));
+    console.log('1. Share the quiz code with your students: ' + quiz.quizCode);
+    console.log('2. Students can enter this code to access the quiz');
+    console.log('3. Quiz is immediately available (no start/end date restrictions)');
+    console.log('4. Students have ' + quiz.allowedAttempts + ' attempts to complete the quiz');
+    console.log('5. Results will be shown immediately after submission');
+    console.log('='.repeat(60));
 
   } catch (error) {
     console.error('Seeding failed:', error);
@@ -231,5 +313,5 @@ function promptUser(question) {
 }
 
 // Run seeder
-console.log('=== Python Programming Quiz Seeder ===\n');
-seedPythonQuiz();
+console.log('🐍 === Python Basic Level 1 Quiz Seeder ===\n');
+seedPythonBasicQuiz();

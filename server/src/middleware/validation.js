@@ -7,6 +7,29 @@ const userSchema = Joi.object({
   role: Joi.string().valid('student', 'instructor', 'admin').default('student'),
 });
 
+const userUpdateSchema = Joi.object({
+  name: Joi.string().min(2).max(50),
+  email: Joi.string().email(),
+  role: Joi.string().valid('student', 'instructor', 'admin'),
+  isActive: Joi.boolean(),
+  department: Joi.string().allow('', null),
+  studentId: Joi.string().allow('', null),
+});
+
+const bulkUsersSchema = Joi.object({
+  users: Joi.array().items(
+    Joi.object({
+      name: Joi.string().min(2).max(50).required(),
+      email: Joi.string().email().required(),
+      password: Joi.string().min(6),
+      role: Joi.string().valid('student', 'instructor', 'admin'),
+      department: Joi.string().allow('', null),
+      studentId: Joi.string().allow('', null),
+      isActive: Joi.boolean(),
+    })
+  ).min(1).max(100).required(),
+});
+
 const questionSchema = Joi.object({
   type: Joi.string().valid('multiple-choice', 'code').required(),
   title: Joi.string().min(1).required(),
@@ -49,10 +72,34 @@ const quizSchema = Joi.object({
   allowedAttempts: Joi.number().integer().min(1).default(1),
   showResults: Joi.boolean().default(true),
   randomizeQuestions: Joi.boolean().default(false),
+  startDate: Joi.date().allow(null),
+  endDate: Joi.date().allow(null),
 });
 
 export const validateAuth = (req, res, next) => {
   const { error } = userSchema.validate(req.body);
+  if (error) {
+    return res.status(400).json({ 
+      message: 'Validation error', 
+      details: error.details[0].message 
+    });
+  }
+  next();
+};
+
+export const validateUserUpdate = (req, res, next) => {
+  const { error } = userUpdateSchema.validate(req.body);
+  if (error) {
+    return res.status(400).json({ 
+      message: 'Validation error', 
+      details: error.details[0].message 
+    });
+  }
+  next();
+};
+
+export const validateBulkUsers = (req, res, next) => {
+  const { error } = bulkUsersSchema.validate(req.body);
   if (error) {
     return res.status(400).json({ 
       message: 'Validation error', 

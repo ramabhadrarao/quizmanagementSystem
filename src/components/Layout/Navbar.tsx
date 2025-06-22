@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { BookOpen, Home, FileText, Plus, LogOut, User, Settings } from 'lucide-react';
+import { BookOpen, Home, FileText, Plus, LogOut, User, Settings, Users } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import Button from '../UI/Button';
 
@@ -13,9 +13,12 @@ const Navbar: React.FC = () => {
     { path: '/quizzes', label: 'Quizzes', icon: FileText },
   ];
 
-  // Add admin route for admin users
+  // Add admin routes for admin users
   if (user?.role === 'admin') {
-    navItems.push({ path: '/admin', label: 'Admin', icon: Settings });
+    navItems.push(
+      { path: '/admin', label: 'Admin', icon: Settings },
+      { path: '/users', label: 'Users', icon: Users }
+    );
   }
 
   const isActive = (path: string) => location.pathname === path;

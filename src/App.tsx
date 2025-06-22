@@ -8,6 +8,7 @@ import QuizEditor from './components/Quiz/QuizEditor';
 import QuizTaking from './components/Quiz/QuizTaking';
 import QuizResult from './components/Quiz/QuizResult';
 import AdminDashboard from './components/Admin/AdminDashboard';
+import UserManagement from './components/Admin/UserManagement';
 import Analytics from './components/Analytics/Analytics';
 import Navbar from './components/Layout/Navbar';
 import { Toaster } from './components/UI/Toaster';
@@ -49,7 +50,10 @@ function App() {
             
             {/* Admin-only routes */}
             {user?.role === 'admin' && (
-              <Route path="/admin" element={<AdminDashboard />} />
+              <>
+                <Route path="/admin" element={<AdminDashboard />} />
+                <Route path="/users" element={<UserManagement />} />
+              </>
             )}
             
             {/* Redirect unknown routes */}

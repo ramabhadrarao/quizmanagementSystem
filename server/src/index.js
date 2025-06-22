@@ -10,6 +10,7 @@ import codeExecutionRoutes from './routes/codeExecution.js';
 import dashboardRoutes from './routes/dashboard.js';
 import analyticsRoutes from './routes/analytics.js';
 import healthRoutes from './routes/health.js';
+import userRoutes from './routes/users.js'; // New route
 import { checkCodeExecutionHealth } from './services/codeExecution.js';
 
 dotenv.config();
@@ -62,6 +63,7 @@ app.use('/api/submissions', submissionRoutes);
 app.use('/api/code', codeExecutionRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/users', userRoutes); // New route
 app.use('/api', healthRoutes);
 
 // Legacy health check endpoint (for backward compatibility)

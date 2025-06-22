@@ -28,6 +28,30 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  resetPasswordToken: {
+    type: String,
+    default: null,
+  },
+  resetPasswordExpires: {
+    type: Date,
+    default: null,
+  },
+  lastLogin: {
+    type: Date,
+    default: null,
+  },
+  profilePicture: {
+    type: String,
+    default: null,
+  },
+  department: {
+    type: String,
+    default: null,
+  },
+  studentId: {
+    type: String,
+    default: null,
+  },
 }, {
   timestamps: true,
 });
@@ -50,10 +74,23 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
 
-// Remove password from JSON output
+// Generate password reset token
+userSchema.methods.generatePasswordResetToken = function() {
+  const resetToken = Math.random().toString(36).substring(2, 15) + 
+                     Math.random().toString(36).substring(2, 15);
+  
+  this.resetPasswordToken = resetToken;
+  this.resetPasswordExpires = Date.now() + 3600000; // 1 hour
+  
+  return resetToken;
+};
+
+// Remove sensitive data from JSON output
 userSchema.methods.toJSON = function() {
   const userObject = this.toObject();
   delete userObject.password;
+  delete userObject.resetPasswordToken;
+  delete userObject.resetPasswordExpires;
   return userObject;
 };
 

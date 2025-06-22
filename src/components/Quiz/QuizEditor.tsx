@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Save, Eye, Plus, Trash2, ArrowLeft, Code, FileText } from 'lucide-react';
+import { Save, Eye, Plus, Trash2, ArrowLeft, Code, FileText, Key, Copy, RefreshCw, Calendar } from 'lucide-react';
 import { useQuizStore, Question } from '../../stores/quizStore';
 import Button from '../UI/Button';
 import Input from '../UI/Input';
@@ -19,6 +19,8 @@ const QuizEditor: React.FC = () => {
     timeLimit: 60,
     isPublished: false,
     questions: [] as Question[],
+    startDate: '',
+    endDate: '',
   });
 
   const [activeQuestion, setActiveQuestion] = useState<number | null>(null);
@@ -37,6 +39,8 @@ const QuizEditor: React.FC = () => {
         timeLimit: currentQuiz.timeLimit,
         isPublished: currentQuiz.isPublished,
         questions: currentQuiz.questions,
+        startDate: currentQuiz.startDate ? new Date(currentQuiz.startDate).toISOString().slice(0, 16) : '',
+        endDate: currentQuiz.endDate ? new Date(currentQuiz.endDate).toISOString().slice(0, 16) : '',
       });
     }
   }, [currentQuiz]);
@@ -55,6 +59,14 @@ const QuizEditor: React.FC = () => {
     if (quiz.questions.length === 0) {
       toast.error('At least one question is required');
       return false;
+    }
+
+    // Validate dates
+    if (quiz.startDate && quiz.endDate) {
+      if (new Date(quiz.startDate) >= new Date(quiz.endDate)) {
+        toast.error('End date must be after start date');
+        return false;
+      }
     }
 
     // Validate each question
@@ -123,6 +135,8 @@ const QuizEditor: React.FC = () => {
         description: quiz.description.trim(),
         timeLimit: quiz.timeLimit,
         isPublished: publish,
+        startDate: quiz.startDate || null,
+        endDate: quiz.endDate || null,
         questions: quiz.questions.map(q => ({
           type: q.type,
           title: q.title.trim(),
@@ -205,6 +219,27 @@ const QuizEditor: React.FC = () => {
     }
   };
 
+  const copyQuizCode = () => {
+    if (currentQuiz?.quizCode) {
+      navigator.clipboard.writeText(currentQuiz.quizCode);
+      toast.success('Quiz code copied to clipboard!');
+    }
+  };
+
+  const regenerateQuizCode = async () => {
+    if (!id || !window.confirm('Are you sure you want to regenerate the quiz code? The old code will no longer work.')) {
+      return;
+    }
+
+    try {
+      const response = await api.post(`/quizzes/${id}/regenerate-code`);
+      toast.success('Quiz code regenerated successfully');
+      fetchQuiz(id);
+    } catch (error) {
+      toast.error('Failed to regenerate quiz code');
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
@@ -279,6 +314,52 @@ const QuizEditor: React.FC = () => {
                 min="1"
                 max="300"
               />
+
+              <Input
+                label="Start Date (Optional)"
+                type="datetime-local"
+                value={quiz.startDate}
+                onChange={(e) => setQuiz(prev => ({ ...prev, startDate: e.target.value }))}
+              />
+
+              <Input
+                label="End Date (Optional)"
+                type="datetime-local"
+                value={quiz.endDate}
+                onChange={(e) => setQuiz(prev => ({ ...prev, endDate: e.target.value }))}
+              />
+
+              {currentQuiz?.quizCode && (
+                <div className="border-t pt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Quiz Code
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 px-4 py-3 bg-gray-100 rounded-lg font-mono text-lg font-bold text-center">
+                      {currentQuiz.quizCode}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={copyQuizCode}
+                      title="Copy code"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={regenerateQuizCode}
+                      title="Regenerate code"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Share this code with students to access the quiz
+                  </p>
+                </div>
+              )}
 
               <div className="border-t pt-4">
                 <h3 className="font-medium text-gray-900 mb-3">Add Questions</h3>
