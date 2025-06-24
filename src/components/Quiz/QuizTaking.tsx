@@ -1,7 +1,7 @@
 // src/components/Quiz/QuizTaking.tsx - Updated with question shuffling support
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Clock, CheckCircle, AlertCircle, Code, FileText, ArrowLeft, ArrowRight, Save, Wifi, WifiOff, Shuffle, Pool } from 'lucide-react';
+import { Clock, CheckCircle, AlertCircle, Code, FileText, ArrowLeft, ArrowRight, Save, Wifi, WifiOff, Shuffle, Layers } from 'lucide-react';
 import { useQuizStore, Question } from '../../stores/quizStore';
 import Button from '../UI/Button';
 import CodeEditor from './CodeEditor';

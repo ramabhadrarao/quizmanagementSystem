@@ -151,7 +151,6 @@ const quizSchema = new mongoose.Schema({
 // Index for better query performance
 quizSchema.index({ createdBy: 1, isPublished: 1 });
 quizSchema.index({ title: 'text', description: 'text' });
-quizSchema.index({ quizCode: 1 });
 
 // Generate unique quiz code
 quizSchema.statics.generateUniqueCode = async function() {

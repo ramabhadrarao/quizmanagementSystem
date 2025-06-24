@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Save, Eye, Plus, Trash2, ArrowLeft, Code, FileText, Key, Copy, RefreshCw, Calendar, Shuffle, Pool } from 'lucide-react';
+import { Save, Eye, Plus, Trash2, ArrowLeft, Code, FileText, Key, Copy, RefreshCw, Calendar, Shuffle, Layers } from 'lucide-react';
 import { useQuizStore, Question } from '../../stores/quizStore';
 import Button from '../UI/Button';
 import Input from '../UI/Input';
@@ -373,7 +373,7 @@ const QuizEditor: React.FC = () => {
               {/* Question Pool Settings */}
               <div className="border-t pt-4">
                 <h3 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
-                  <Pool className="w-4 h-4" />
+                  <Layers className="w-4 h-4" />
                   Question Pool Settings
                 </h3>
                 
