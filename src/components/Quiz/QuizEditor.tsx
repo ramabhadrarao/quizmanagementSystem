@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Save, Eye, Plus, Trash2, ArrowLeft, Code, FileText, Key, Copy, RefreshCw, Calendar } from 'lucide-react';
+import { Save, Eye, Plus, Trash2, ArrowLeft, Code, FileText, Key, Copy, RefreshCw, Calendar, Shuffle, Pool } from 'lucide-react';
 import { useQuizStore, Question } from '../../stores/quizStore';
 import Button from '../UI/Button';
 import Input from '../UI/Input';
 import RichTextEditor from './RichTextEditor';
 import CodeEditor from './CodeEditor';
 import { toast } from '../UI/Toaster';
+import api from '../../services/api';
 
 const QuizEditor: React.FC = () => {
   const { id } = useParams();
@@ -21,6 +22,15 @@ const QuizEditor: React.FC = () => {
     questions: [] as Question[],
     startDate: '',
     endDate: '',
+    questionPoolConfig: {
+      enabled: false,
+      multipleChoiceCount: 0,
+      codeCount: 0,
+    },
+    shuffleConfig: {
+      shuffleQuestions: false,
+      shuffleOptions: false,
+    },
   });
 
   const [activeQuestion, setActiveQuestion] = useState<number | null>(null);
@@ -41,6 +51,15 @@ const QuizEditor: React.FC = () => {
         questions: currentQuiz.questions,
         startDate: currentQuiz.startDate ? new Date(currentQuiz.startDate).toISOString().slice(0, 16) : '',
         endDate: currentQuiz.endDate ? new Date(currentQuiz.endDate).toISOString().slice(0, 16) : '',
+        questionPoolConfig: currentQuiz.questionPoolConfig || {
+          enabled: false,
+          multipleChoiceCount: 0,
+          codeCount: 0,
+        },
+        shuffleConfig: currentQuiz.shuffleConfig || {
+          shuffleQuestions: false,
+          shuffleOptions: false,
+        },
       });
     }
   }, [currentQuiz]);
@@ -65,6 +84,22 @@ const QuizEditor: React.FC = () => {
     if (quiz.startDate && quiz.endDate) {
       if (new Date(quiz.startDate) >= new Date(quiz.endDate)) {
         toast.error('End date must be after start date');
+        return false;
+      }
+    }
+
+    // Validate question pool config
+    if (quiz.questionPoolConfig.enabled) {
+      const mcqCount = quiz.questions.filter(q => q.type === 'multiple-choice').length;
+      const codeCount = quiz.questions.filter(q => q.type === 'code').length;
+      
+      if (quiz.questionPoolConfig.multipleChoiceCount > mcqCount) {
+        toast.error(`Cannot select ${quiz.questionPoolConfig.multipleChoiceCount} MCQs from a pool of ${mcqCount}`);
+        return false;
+      }
+      
+      if (quiz.questionPoolConfig.codeCount > codeCount) {
+        toast.error(`Cannot select ${quiz.questionPoolConfig.codeCount} code questions from a pool of ${codeCount}`);
         return false;
       }
     }
@@ -137,6 +172,8 @@ const QuizEditor: React.FC = () => {
         isPublished: publish,
         startDate: quiz.startDate || null,
         endDate: quiz.endDate || null,
+        questionPoolConfig: quiz.questionPoolConfig,
+        shuffleConfig: quiz.shuffleConfig,
         questions: quiz.questions.map(q => ({
           type: q.type,
           title: q.title.trim(),
@@ -240,6 +277,10 @@ const QuizEditor: React.FC = () => {
     }
   };
 
+  // Calculate question type counts
+  const mcqCount = quiz.questions.filter(q => q.type === 'multiple-choice').length;
+  const codeCount = quiz.questions.filter(q => q.type === 'code').length;
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
@@ -328,6 +369,106 @@ const QuizEditor: React.FC = () => {
                 value={quiz.endDate}
                 onChange={(e) => setQuiz(prev => ({ ...prev, endDate: e.target.value }))}
               />
+
+              {/* Question Pool Settings */}
+              <div className="border-t pt-4">
+                <h3 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
+                  <Pool className="w-4 h-4" />
+                  Question Pool Settings
+                </h3>
+                
+                <label className="flex items-center gap-2 mb-3">
+                  <input
+                    type="checkbox"
+                    checked={quiz.questionPoolConfig?.enabled || false}
+                    onChange={(e) => setQuiz(prev => ({
+                      ...prev,
+                      questionPoolConfig: {
+                        ...prev.questionPoolConfig,
+                        enabled: e.target.checked,
+                      },
+                    }))}
+                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">Enable Question Pool</span>
+                </label>
+                
+                {quiz.questionPoolConfig?.enabled && (
+                  <div className="space-y-3 ml-6">
+                    <Input
+                      label={`MCQs to Select (Pool: ${mcqCount})`}
+                      type="number"
+                      value={quiz.questionPoolConfig?.multipleChoiceCount || 0}
+                      onChange={(e) => setQuiz(prev => ({
+                        ...prev,
+                        questionPoolConfig: {
+                          ...prev.questionPoolConfig,
+                          multipleChoiceCount: parseInt(e.target.value) || 0,
+                        },
+                      }))}
+                      min="0"
+                      max={mcqCount}
+                      helperText="0 means use all questions"
+                    />
+                    
+                    <Input
+                      label={`Code Questions to Select (Pool: ${codeCount})`}
+                      type="number"
+                      value={quiz.questionPoolConfig?.codeCount || 0}
+                      onChange={(e) => setQuiz(prev => ({
+                        ...prev,
+                        questionPoolConfig: {
+                          ...prev.questionPoolConfig,
+                          codeCount: parseInt(e.target.value) || 0,
+                        },
+                      }))}
+                      min="0"
+                      max={codeCount}
+                      helperText="0 means use all questions"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Shuffle Settings */}
+              <div className="border-t pt-4">
+                <h3 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
+                  <Shuffle className="w-4 h-4" />
+                  Shuffle Settings
+                </h3>
+                
+                <label className="flex items-center gap-2 mb-3">
+                  <input
+                    type="checkbox"
+                    checked={quiz.shuffleConfig?.shuffleQuestions || false}
+                    onChange={(e) => setQuiz(prev => ({
+                      ...prev,
+                      shuffleConfig: {
+                        ...prev.shuffleConfig,
+                        shuffleQuestions: e.target.checked,
+                      },
+                    }))}
+                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">Shuffle Question Order</span>
+                </label>
+                
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={quiz.shuffleConfig?.shuffleOptions || false}
+                    onChange={(e) => setQuiz(prev => ({
+                      ...prev,
+                      shuffleConfig: {
+                        ...prev.shuffleConfig,
+                        shuffleOptions: e.target.checked,
+                      },
+                    }))}
+                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">Shuffle Multiple Choice Options</span>
+                </label>
+              </div>
 
               {currentQuiz?.quizCode && (
                 <div className="border-t pt-4">
