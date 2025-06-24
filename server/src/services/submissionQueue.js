@@ -1,9 +1,10 @@
-// server/src/services/submissionQueue.js - Updated to use external code execution service
+// server/src/services/submissionQueue.js - Updated with shuffle-aware grading
 import Queue from 'bull';
 import Redis from 'ioredis';
 import Submission from '../models/Submission.js';
 import Quiz from '../models/Quiz.js';
 import { executeCode } from './codeExecution.js';
+import { getOriginalAnswerIndex } from './questionSelection.js';
 
 // Redis connection
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
@@ -66,8 +67,21 @@ submissionQueue.process('grade-submission', 5, async (job) => {
       await job.progress((i / submission.answers.length) * 100);
 
       if (question.type === 'multiple-choice') {
-        // Grade multiple choice question
-        isCorrect = question.correctAnswer === answer.answer;
+        // Get the assignment info for this question
+        const assignment = submission.assignedQuestions.find(
+          aq => aq.originalQuestionId === answer.questionId
+        );
+        
+        if (assignment?.shuffledOptionOrder) {
+          // Convert the shuffled answer index back to original index
+          const shuffledIndex = answer.answer;
+          const originalIndex = getOriginalAnswerIndex(shuffledIndex, assignment.shuffledOptionOrder);
+          isCorrect = question.correctAnswer === originalIndex;
+        } else {
+          // No shuffling, use direct comparison
+          isCorrect = question.correctAnswer === answer.answer;
+        }
+        
         score = isCorrect ? question.points : 0;
       } else if (question.type === 'code') {
         // Grade code question using external service

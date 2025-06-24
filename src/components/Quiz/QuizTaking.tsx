@@ -1,7 +1,7 @@
-// src/components/Quiz/QuizTaking.tsx - Complete updated version with submission check
+// src/components/Quiz/QuizTaking.tsx - Updated with question shuffling support
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Clock, CheckCircle, AlertCircle, Code, FileText, ArrowLeft, ArrowRight, Save, Wifi, WifiOff } from 'lucide-react';
+import { Clock, CheckCircle, AlertCircle, Code, FileText, ArrowLeft, ArrowRight, Save, Wifi, WifiOff, Shuffle, Pool } from 'lucide-react';
 import { useQuizStore, Question } from '../../stores/quizStore';
 import Button from '../UI/Button';
 import CodeEditor from './CodeEditor';
@@ -49,6 +49,9 @@ const QuizTaking: React.FC = () => {
   const [isResuming, setIsResuming] = useState(false);
   const [showSubmissionModal, setShowSubmissionModal] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(true);
+  
+  // Store the shuffled questions from the server
+  const [quizQuestions, setQuizQuestions] = useState<Question[]>([]);
 
   // Refs for intervals and timers
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -258,6 +261,14 @@ const QuizTaking: React.FC = () => {
       
       const { submission } = response.data;
       
+      // Store the shuffled questions from the server
+      if (submission.questions) {
+        setQuizQuestions(submission.questions);
+      } else {
+        // Fallback to original questions if server doesn't send shuffled ones
+        setQuizQuestions(currentQuiz.questions);
+      }
+      
       setSubmissionId(submission.id);
       setQuizStarted(true);
       setTotalTimeSpent(submission.timeSpent || 0);
@@ -409,6 +420,21 @@ const QuizTaking: React.FC = () => {
     }
   };
 
+  // Calculate stats for shuffled quiz
+  const getQuizStats = () => {
+    if (!currentQuiz) return null;
+    
+    const totalQuestions = quizQuestions.length || currentQuiz.questions.length;
+    const selectedFromPool = currentQuiz.questionPoolConfig?.enabled || false;
+    const shuffled = currentQuiz.shuffleConfig?.shuffleQuestions || currentQuiz.shuffleConfig?.shuffleOptions || false;
+    
+    return {
+      totalQuestions,
+      selectedFromPool,
+      shuffled,
+    };
+  };
+
   // Loading state
   if (loading || checkingStatus) {
     return (
@@ -442,6 +468,8 @@ const QuizTaking: React.FC = () => {
       </div>
     );
   }
+
+  const stats = getQuizStats();
 
   // Quiz start screen
   if (!quizStarted) {
@@ -489,7 +517,7 @@ const QuizTaking: React.FC = () => {
                     <div className="text-2xl font-bold text-blue-900 mb-1">
                       {currentQuiz.questions?.length || 0}
                     </div>
-                    <div className="text-sm text-blue-700">Questions</div>
+                    <div className="text-sm text-blue-700">Total Questions</div>
                   </div>
                   
                   <div className="bg-purple-50 rounded-lg p-4">
@@ -508,6 +536,28 @@ const QuizTaking: React.FC = () => {
                     <div className="text-sm text-green-700">Points</div>
                   </div>
                 </div>
+
+                {/* Show quiz configuration info */}
+                {(stats?.selectedFromPool || stats?.shuffled) && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                    <div className="flex items-center gap-2 text-blue-800 mb-2">
+                      {stats.selectedFromPool && <Pool className="w-4 h-4" />}
+                      {stats.shuffled && <Shuffle className="w-4 h-4" />}
+                      <span className="font-medium">Quiz Configuration</span>
+                    </div>
+                    <ul className="text-sm text-blue-700 space-y-1">
+                      {stats.selectedFromPool && (
+                        <li>• Questions randomly selected from a larger pool</li>
+                      )}
+                      {currentQuiz.shuffleConfig?.shuffleQuestions && (
+                        <li>• Question order will be randomized</li>
+                      )}
+                      {currentQuiz.shuffleConfig?.shuffleOptions && (
+                        <li>• Multiple choice options will be shuffled</li>
+                      )}
+                    </ul>
+                  </div>
+                )}
 
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-8">
                   <AlertCircle className="w-5 h-5 text-yellow-600 inline mr-2" />
@@ -539,8 +589,11 @@ const QuizTaking: React.FC = () => {
     );
   }
 
+  // Use shuffled questions if available, otherwise fall back to original questions
+  const questionsToDisplay = quizQuestions.length > 0 ? quizQuestions : currentQuiz.questions;
+  
   // Validate current question
-  const currentQuestion = currentQuiz.questions[currentQuestionIndex];
+  const currentQuestion = questionsToDisplay[currentQuestionIndex];
   if (!currentQuestion) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -569,7 +622,7 @@ const QuizTaking: React.FC = () => {
                 {currentQuiz.title}
               </h1>
               <p className="text-gray-600">
-                Question {currentQuestionIndex + 1} of {currentQuiz.questions.length}
+                Question {currentQuestionIndex + 1} of {questionsToDisplay.length}
               </p>
             </div>
             
@@ -623,14 +676,14 @@ const QuizTaking: React.FC = () => {
             <div className="flex justify-between text-sm text-gray-600 mb-2">
               <span>Progress</span>
               <span>
-                {answers.filter(a => isAnswered(a.questionId)).length} of {currentQuiz.questions.length} answered
+                {answers.filter(a => isAnswered(a.questionId)).length} of {questionsToDisplay.length} answered
               </span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2">
               <div
                 className="bg-gradient-to-r from-blue-600 to-purple-600 h-2 rounded-full transition-all duration-300"
                 style={{
-                  width: `${((currentQuestionIndex + 1) / currentQuiz.questions.length) * 100}%`,
+                  width: `${((currentQuestionIndex + 1) / questionsToDisplay.length) * 100}%`,
                 }}
               />
             </div>
@@ -643,7 +696,7 @@ const QuizTaking: React.FC = () => {
             <div className="bg-white/80 backdrop-blur-lg rounded-xl shadow-lg border border-white/20 p-6 sticky top-24">
               <h3 className="font-semibold text-gray-900 mb-4">Questions</h3>
               <div className="grid grid-cols-5 lg:grid-cols-1 gap-2">
-                {currentQuiz.questions.map((question, index) => {
+                {questionsToDisplay.map((question, index) => {
                   const qId = question._id || question.id || `question_${index}`;
                   return (
                     <button
@@ -761,8 +814,8 @@ const QuizTaking: React.FC = () => {
                 </div>
 
                 <Button
-                  onClick={() => setCurrentQuestionIndex(Math.min(currentQuiz.questions.length - 1, currentQuestionIndex + 1))}
-                  disabled={currentQuestionIndex === currentQuiz.questions.length - 1}
+                  onClick={() => setCurrentQuestionIndex(Math.min(questionsToDisplay.length - 1, currentQuestionIndex + 1))}
+                  disabled={currentQuestionIndex === questionsToDisplay.length - 1}
                 >
                   Next
                   <ArrowRight className="w-4 h-4 ml-2" />
@@ -778,7 +831,7 @@ const QuizTaking: React.FC = () => {
         isOpen={showSubmissionModal}
         onClose={() => setShowSubmissionModal(false)}
         onConfirm={handleConfirmSubmission}
-        quiz={currentQuiz}
+        quiz={{ ...currentQuiz, questions: questionsToDisplay }}
         answers={answers}
         timeSpent={totalTimeSpent + Math.floor((Date.now() - timeStartRef.current) / 1000)}
         isSubmitting={isSubmitting}

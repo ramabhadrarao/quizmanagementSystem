@@ -3,6 +3,7 @@ import api from '../services/api';
 
 export interface Question {
   id: string;
+  _id?: string;
   type: 'multiple-choice' | 'code';
   title: string;
   content: string;
@@ -19,8 +20,20 @@ export interface TestCase {
   isHidden?: boolean;
 }
 
+export interface QuestionPoolConfig {
+  enabled: boolean;
+  multipleChoiceCount: number;
+  codeCount: number;
+}
+
+export interface ShuffleConfig {
+  shuffleQuestions: boolean;
+  shuffleOptions: boolean;
+}
+
 export interface Quiz {
   id: string;
+  _id?: string;
   title: string;
   description: string;
   quizCode?: string;
@@ -32,6 +45,9 @@ export interface Quiz {
   endDate?: string;
   createdAt: string;
   updatedAt: string;
+  questionPoolConfig?: QuestionPoolConfig;
+  shuffleConfig?: ShuffleConfig;
+  userSubmission?: any;
 }
 
 interface QuizState {
@@ -41,7 +57,7 @@ interface QuizState {
   error: string | null;
   fetchQuizzes: () => Promise<void>;
   fetchQuiz: (id: string) => Promise<void>;
-  createQuiz: (quiz: Omit<Quiz, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'quizCode'>) => Promise<void>;
+  createQuiz: (quiz: Omit<Quiz, 'id' | '_id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'quizCode'>) => Promise<void>;
   updateQuiz: (id: string, quiz: Partial<Quiz>) => Promise<void>;
   deleteQuiz: (id: string) => Promise<void>;
   clearError: () => void;

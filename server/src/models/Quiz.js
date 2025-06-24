@@ -116,6 +116,34 @@ const quizSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
   }],
+  
+  // Question pool configuration
+  questionPoolConfig: {
+    enabled: {
+      type: Boolean,
+      default: false,
+    },
+    multipleChoiceCount: {
+      type: Number,
+      default: 0, // 0 means use all
+    },
+    codeCount: {
+      type: Number,
+      default: 0, // 0 means use all
+    },
+  },
+  
+  // Shuffling configuration
+  shuffleConfig: {
+    shuffleQuestions: {
+      type: Boolean,
+      default: false,
+    },
+    shuffleOptions: {
+      type: Boolean,
+      default: false,
+    },
+  },
 }, {
   timestamps: true,
 });

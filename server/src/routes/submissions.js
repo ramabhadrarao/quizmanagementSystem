@@ -1,9 +1,10 @@
-// server/src/routes/submissions.js - Complete routes with strict single submission policy
+// server/src/routes/submissions.js - Updated with question selection and shuffling
 import express from 'express';
 import Submission from '../models/Submission.js';
 import Quiz from '../models/Quiz.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { queueSubmissionForGrading } from '../services/submissionQueue.js';
+import { selectQuestionsForUser, applyShuffleOrder } from '../services/questionSelection.js';
 
 const router = express.Router();
 
@@ -252,6 +253,18 @@ router.post('/start', requireAuth, async (req, res) => {
       // If submission is in progress, allow resume
       if (existingSubmission.status === 'in_progress') {
         console.log('🔍 Found existing in-progress submission');
+        
+        // Get the questions that were assigned to this user
+        const selectedQuestions = quiz.questions.filter(q =>
+          existingSubmission.selectedQuestionIds.includes(q._id.toString())
+        );
+        
+        // Apply the same shuffle order
+        const shuffledQuestions = applyShuffleOrder(
+          selectedQuestions,
+          existingSubmission.assignedQuestions
+        );
+        
         return res.json({
           message: 'Resuming existing attempt',
           submission: {
@@ -260,6 +273,7 @@ router.post('/start', requireAuth, async (req, res) => {
             answers: existingSubmission.answers,
             timeSpent: existingSubmission.timeSpent || 0,
             isResuming: true,
+            questions: shuffledQuestions, // Send shuffled questions
           },
         });
       } else {
@@ -272,13 +286,25 @@ router.post('/start', requireAuth, async (req, res) => {
       }
     }
 
-    // Create new submission
-    const maxScore = quiz.questions.reduce((sum, q) => sum + (q.points || 1), 0);
+    // Select questions for this user
+    const { selectedQuestions, assignedQuestions } = selectQuestionsForUser(
+      quiz,
+      req.user.userId
+    );
     
+    // Apply shuffling
+    const shuffledQuestions = applyShuffleOrder(selectedQuestions, assignedQuestions);
+    
+    // Calculate max score based on selected questions
+    const maxScore = selectedQuestions.reduce((sum, q) => sum + (q.points || 1), 0);
+    
+    // Create new submission with selected questions
     const submission = new Submission({
       quiz: quizId,
       user: req.user.userId,
-      answers: quiz.questions.map((question, index) => ({
+      assignedQuestions,
+      selectedQuestionIds: selectedQuestions.map(q => q._id.toString()),
+      answers: shuffledQuestions.map((question) => ({
         questionId: question._id.toString(),
         type: question.type,
         answer: question.type === 'multiple-choice' ? -1 : '',
@@ -303,6 +329,7 @@ router.post('/start', requireAuth, async (req, res) => {
         answers: submission.answers,
         timeSpent: 0,
         isResuming: false,
+        questions: shuffledQuestions, // Send shuffled questions
       },
     });
   } catch (error) {

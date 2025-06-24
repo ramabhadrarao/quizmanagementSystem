@@ -1,4 +1,4 @@
-// server/src/models/Submission.js - Enhanced model with queue support
+// server/src/models/Submission.js - Enhanced model with shuffle support
 import mongoose from 'mongoose';
 
 const answerSchema = new mongoose.Schema({
@@ -44,6 +44,19 @@ const answerSchema = new mongoose.Schema({
   },
 });
 
+const assignedQuestionSchema = new mongoose.Schema({
+  originalQuestionId: {
+    type: String,
+    required: true,
+  },
+  displayOrder: {
+    type: Number,
+    required: true,
+  },
+  // For multiple choice questions, store the shuffled option order
+  shuffledOptionOrder: [Number], // Array of indices representing the shuffled order
+});
+
 const submissionSchema = new mongoose.Schema({
   quiz: {
     type: mongoose.Schema.Types.ObjectId,
@@ -56,6 +69,13 @@ const submissionSchema = new mongoose.Schema({
     required: true,
   },
   answers: [answerSchema],
+  
+  // Store the specific questions assigned to this user
+  assignedQuestions: [assignedQuestionSchema],
+  
+  // Store which questions were selected from the pool
+  selectedQuestionIds: [String],
+  
   totalScore: {
     type: Number,
     default: 0,
