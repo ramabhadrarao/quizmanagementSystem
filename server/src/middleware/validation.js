@@ -74,6 +74,24 @@ const quizSchema = Joi.object({
   randomizeQuestions: Joi.boolean().default(false),
   startDate: Joi.date().allow(null),
   endDate: Joi.date().allow(null),
+  // Question pool configuration
+  questionPoolConfig: Joi.object({
+    enabled: Joi.boolean().default(false),
+    multipleChoiceCount: Joi.number().integer().min(0).default(0),
+    codeCount: Joi.number().integer().min(0).default(0),
+  }).default({
+    enabled: false,
+    multipleChoiceCount: 0,
+    codeCount: 0,
+  }),
+  // Shuffle configuration
+  shuffleConfig: Joi.object({
+    shuffleQuestions: Joi.boolean().default(false),
+    shuffleOptions: Joi.boolean().default(false),
+  }).default({
+    shuffleQuestions: false,
+    shuffleOptions: false,
+  }),
 });
 
 export const validateAuth = (req, res, next) => {

@@ -530,7 +530,7 @@ const QuizEditor: React.FC = () => {
                   <div className="space-y-2 max-h-64 overflow-y-auto">
                     {quiz.questions.map((question, index) => (
                       <div
-                        key={question.id}
+                        key={question.id || `question-${index}`}
                         className={`p-3 border rounded-lg cursor-pointer transition-colors ${
                           activeQuestion === index
                             ? 'border-blue-500 bg-blue-50'
