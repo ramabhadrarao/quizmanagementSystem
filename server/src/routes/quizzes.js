@@ -1,5 +1,6 @@
 import express from 'express';
 import Quiz from '../models/Quiz.js';
+import Submission from '../models/Submission.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { validateQuiz } from '../middleware/validation.js';
 
