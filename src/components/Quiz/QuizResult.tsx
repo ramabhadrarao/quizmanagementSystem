@@ -1,4 +1,4 @@
-// src/components/Quiz/QuizResult.tsx - Updated with proper processing state handling
+// src/components/Quiz/QuizResult.tsx - Fixed to handle selected questions properly
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { 
@@ -13,7 +13,9 @@ import {
   TrendingUp,
   Eye,
   EyeOff,
-  Loader
+  Loader,
+  Layers,
+  Shuffle
 } from 'lucide-react';
 import Button from '../UI/Button';
 import api from '../../services/api';
@@ -49,6 +51,15 @@ interface QuizResultData {
     title: string;
     description: string;
     questions: any[];
+    questionPoolConfig?: {
+      enabled: boolean;
+      multipleChoiceCount: number;
+      codeCount: number;
+    };
+    shuffleConfig?: {
+      shuffleQuestions: boolean;
+      shuffleOptions: boolean;
+    };
   };
   answers: AnswerResult[];
   totalScore: number;
@@ -57,6 +68,7 @@ interface QuizResultData {
   timeSpent: number;
   completedAt: string;
   status: 'completed' | 'processing' | 'submitted' | 'error';
+  selectedQuestionIds?: string[];
 }
 
 const QuizResult: React.FC = () => {
@@ -168,6 +180,41 @@ const QuizResult: React.FC = () => {
     return messages[index];
   };
 
+  // Get the actual questions shown to the user (not the full question bank)
+  const getDisplayedQuestions = () => {
+    if (!result) return [];
+    
+    // If selectedQuestionIds exists, filter questions to only show selected ones
+    if (result.selectedQuestionIds && result.selectedQuestionIds.length > 0) {
+      return result.quiz.questions.filter(q => 
+        result.selectedQuestionIds!.includes(q._id || q.id)
+      );
+    }
+    
+    // Otherwise, show all questions (for quizzes without pool selection)
+    return result.quiz.questions;
+  };
+
+  // Get pool information
+  const getPoolInfo = () => {
+    if (!result?.quiz.questionPoolConfig?.enabled) {
+      return null;
+    }
+
+    const totalInPool = result.quiz.questions.length;
+    const selectedCount = result.selectedQuestionIds?.length || result.answers.length;
+    
+    if (totalInPool > selectedCount) {
+      return {
+        totalInPool,
+        selectedCount,
+        text: `This quiz selected ${selectedCount} questions from a pool of ${totalInPool}`
+      };
+    }
+    
+    return null;
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -274,6 +321,10 @@ const QuizResult: React.FC = () => {
     );
   }
 
+  const displayedQuestions = getDisplayedQuestions();
+  const poolInfo = getPoolInfo();
+  const hasShuffling = result.quiz.shuffleConfig?.shuffleQuestions || result.quiz.shuffleConfig?.shuffleOptions;
+
   // Show completed results
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -334,6 +385,28 @@ const QuizResult: React.FC = () => {
           </p>
         </div>
 
+        {/* Quiz Configuration Info */}
+        {(poolInfo || hasShuffling) && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+            <div className="flex items-center gap-2 text-blue-800 mb-2">
+              {poolInfo && <Layers className="w-4 h-4" />}
+              {hasShuffling && <Shuffle className="w-4 h-4" />}
+              <span className="font-medium">Quiz Configuration</span>
+            </div>
+            <ul className="text-sm text-blue-700 space-y-1">
+              {poolInfo && (
+                <li>• {poolInfo.text}</li>
+              )}
+              {result.quiz.shuffleConfig?.shuffleQuestions && (
+                <li>• Questions were presented in randomized order</li>
+              )}
+              {result.quiz.shuffleConfig?.shuffleOptions && (
+                <li>• Multiple choice options were shuffled</li>
+              )}
+            </ul>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="text-center">
             <div className="text-2xl font-bold text-gray-900 mb-1">
@@ -358,9 +431,11 @@ const QuizResult: React.FC = () => {
           
           <div className="text-center">
             <div className="text-2xl font-bold text-purple-600 mb-1">
-              {result.quiz.questions.length}
+              {displayedQuestions.length}
             </div>
-            <div className="text-sm text-gray-600">Total Questions</div>
+            <div className="text-sm text-gray-600">
+              {poolInfo ? 'Questions Answered' : 'Total Questions'}
+            </div>
           </div>
         </div>
       </div>
@@ -389,16 +464,20 @@ const QuizResult: React.FC = () => {
 
         {showAnswers && (
           <div className="space-y-6">
-            {result.quiz.questions.map((question: any, index: number) => {
+            {displayedQuestions.map((question: any, index: number) => {
               const questionId = question._id || question.id || `question_${index}`;
               const answer = result.answers.find(a => a.questionId === questionId);
+              
+              // Skip questions that weren't answered (shouldn't happen, but safety check)
+              if (!answer) return null;
+              
               const isExpanded = expandedQuestions.has(questionId);
 
               return (
                 <div
                   key={questionId}
                   className={`border rounded-lg p-6 ${
-                    answer?.isCorrect ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'
+                    answer.isCorrect ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'
                   }`}
                 >
                   <div className="flex items-start justify-between mb-4">
@@ -420,16 +499,16 @@ const QuizResult: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-3">
                       <div className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
-                        answer?.isCorrect 
+                        answer.isCorrect 
                           ? 'bg-green-100 text-green-800' 
                           : 'bg-red-100 text-red-800'
                       }`}>
-                        {answer?.isCorrect ? (
+                        {answer.isCorrect ? (
                           <CheckCircle className="w-4 h-4" />
                         ) : (
                           <XCircle className="w-4 h-4" />
                         )}
-                        {answer?.score || 0}/{question.points} pts
+                        {answer.score || 0}/{question.points} pts
                       </div>
                       <Button
                         variant="ghost"
@@ -448,9 +527,9 @@ const QuizResult: React.FC = () => {
                           <div>
                             <h5 className="font-medium text-gray-900 mb-2">Your Answer:</h5>
                             <div className={`p-3 rounded border ${
-                              answer?.isCorrect ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'
+                              answer.isCorrect ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'
                             }`}>
-                              {question.options?.[answer?.answer as number] || 'No answer selected'}
+                              {question.options?.[answer.answer as number] || 'No answer selected'}
                             </div>
                           </div>
                           <div>
@@ -465,11 +544,11 @@ const QuizResult: React.FC = () => {
                           <div>
                             <h5 className="font-medium text-gray-900 mb-2">Your Code:</h5>
                             <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm">
-                              {answer?.code || 'No code submitted'}
+                              {answer.code || 'No code submitted'}
                             </pre>
                           </div>
                           
-                          {answer?.executionResult && (
+                          {answer.executionResult && (
                             <div>
                               <h5 className="font-medium text-gray-900 mb-2">Execution Results:</h5>
                               

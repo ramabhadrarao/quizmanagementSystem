@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { FileText, Users, TrendingUp, Clock, Plus, Eye, BarChart3, Key, CheckCircle } from 'lucide-react';
+import { FileText, Users, TrendingUp, Clock, Plus, Eye, BarChart3, Key, CheckCircle, Layers, Shuffle } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import { useQuizStore } from '../../stores/quizStore';
@@ -74,11 +74,62 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const handleQuizClick = (quizId: string, userSubmission?: any) => {
+  // Helper function to calculate actual question count based on pool configuration
+  const getActualQuestionCount = (quiz: any) => {
+    if (!quiz.questionPoolConfig?.enabled) {
+      return quiz.questions.length;
+    }
+
+    // Calculate actual questions from pool
+    const mcqCount = quiz.questions.filter((q: any) => q.type === 'multiple-choice').length;
+    const codeCount = quiz.questions.filter((q: any) => q.type === 'code').length;
+
+    const actualMcqCount = quiz.questionPoolConfig.multipleChoiceCount > 0 
+      ? Math.min(quiz.questionPoolConfig.multipleChoiceCount, mcqCount)
+      : mcqCount;
+
+    const actualCodeCount = quiz.questionPoolConfig.codeCount > 0
+      ? Math.min(quiz.questionPoolConfig.codeCount, codeCount)
+      : codeCount;
+
+    return actualMcqCount + actualCodeCount;
+  };
+
+  // Helper function to get pool info text
+  const getPoolInfoText = (quiz: any) => {
+    if (!quiz.questionPoolConfig?.enabled) {
+      return null;
+    }
+
+    const totalQuestions = quiz.questions.length;
+    const actualQuestions = getActualQuestionCount(quiz);
+
+    if (totalQuestions === actualQuestions) {
+      return null; // No selection happening
+    }
+
+    return `${actualQuestions} from ${totalQuestions}`;
+  };
+
+  const handleQuizClick = async (quizId: string, userSubmission?: any) => {
     if (user?.role === 'student') {
       if (userSubmission?.status === 'completed') {
-        // If already completed, go to results
-        navigate(`/quiz/result/${userSubmission.id}`);
+        // Need to fetch the actual submission ID
+        try {
+          const response = await api.get('/submissions/my/submissions');
+          const submissions = response.data.submissions || [];
+          const submission = submissions.find((sub: any) => 
+            (sub.quiz._id === quizId || sub.quiz === quizId) && sub.status === 'completed'
+          );
+          
+          if (submission) {
+            navigate(`/quiz/result/${submission._id}`);
+          } else {
+            console.error('Could not find submission for completed quiz');
+          }
+        } catch (error) {
+          console.error('Failed to fetch submission:', error);
+        }
       } else if (userSubmission?.status === 'in_progress') {
         // If in progress, resume
         navigate(`/quiz/take/${quizId}`);
@@ -210,6 +261,8 @@ const Dashboard: React.FC = () => {
                     const userSubmission = quiz.userSubmission;
                     const isCompleted = userSubmission?.status === 'completed';
                     const isInProgress = userSubmission?.status === 'in_progress';
+                    const actualQuestionCount = getActualQuestionCount(quiz);
+                    const poolInfo = getPoolInfoText(quiz);
                     
                     return (
                       <div
@@ -225,9 +278,25 @@ const Dashboard: React.FC = () => {
                             {isCompleted && (
                               <CheckCircle className="w-4 h-4 text-green-600" />
                             )}
+                            {(quiz.questionPoolConfig?.enabled || quiz.shuffleConfig?.shuffleQuestions) && (
+                              <div className="flex items-center gap-1">
+                                {quiz.questionPoolConfig?.enabled && (
+                                  <span className="inline-flex items-center p-1 bg-purple-100 rounded" title="Question Pool">
+                                    <Layers className="w-3 h-3 text-purple-600" />
+                                  </span>
+                                )}
+                                {quiz.shuffleConfig?.shuffleQuestions && (
+                                  <span className="inline-flex items-center p-1 bg-blue-100 rounded" title="Randomized">
+                                    <Shuffle className="w-3 h-3 text-blue-600" />
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
                           <p className="text-sm text-gray-600">
-                            {quiz.questions.length} questions • {quiz.timeLimit} min
+                            {actualQuestionCount} questions
+                            {poolInfo && <span className="text-blue-600"> ({poolInfo})</span>}
+                            {' • '}{quiz.timeLimit} min
                             {isCompleted && ` • Score: ${userSubmission.percentage}%`}
                           </p>
                         </div>
@@ -363,8 +432,8 @@ const Dashboard: React.FC = () => {
               <h3 className="font-medium text-blue-900 mb-2">💡 Pro Tip</h3>
               <p className="text-sm text-blue-800">
                 {user?.role === 'student' 
-                  ? 'You can see available quizzes here. Click on any quiz to enter its code and start!'
-                  : 'Use the analytics dashboard to track student performance and identify challenging questions.'}
+                  ? 'Look for the pool and shuffle icons to see which quizzes have randomized questions!'
+                  : 'Use question pools and shuffling to create unique quiz experiences for each student.'}
               </p>
             </div>
           </div>

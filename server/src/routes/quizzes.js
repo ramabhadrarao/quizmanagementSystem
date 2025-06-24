@@ -7,7 +7,6 @@ import { validateQuiz } from '../middleware/validation.js';
 const router = express.Router();
 
 // Get all quizzes
-// Get all quizzes
 router.get('/', requireAuth, async (req, res) => {
   try {
     const { page = 1, limit = 10, search, status } = req.query;
@@ -72,6 +71,16 @@ router.get('/', requireAuth, async (req, res) => {
         endDate: quiz.endDate,
         createdAt: quiz.createdAt,
         updatedAt: quiz.updatedAt,
+        // IMPORTANT: Include pool and shuffle configurations
+        questionPoolConfig: quiz.questionPoolConfig || {
+          enabled: false,
+          multipleChoiceCount: 0,
+          codeCount: 0,
+        },
+        shuffleConfig: quiz.shuffleConfig || {
+          shuffleQuestions: false,
+          shuffleOptions: false,
+        },
       };
       
       // Only include quiz code for instructors/admins
@@ -150,6 +159,9 @@ router.post('/verify-code', requireAuth, async (req, res) => {
         timeLimit: quiz.timeLimit,
         questions: quiz.questions.length,
         createdBy: quiz.createdBy,
+        // Include pool config for proper display
+        questionPoolConfig: quiz.questionPoolConfig,
+        shuffleConfig: quiz.shuffleConfig,
       },
     });
   } catch (error) {
@@ -185,6 +197,16 @@ router.get('/:id', requireAuth, async (req, res) => {
       endDate: quiz.endDate,
       createdAt: quiz.createdAt,
       updatedAt: quiz.updatedAt,
+      // Include pool and shuffle configurations
+      questionPoolConfig: quiz.questionPoolConfig || {
+        enabled: false,
+        multipleChoiceCount: 0,
+        codeCount: 0,
+      },
+      shuffleConfig: quiz.shuffleConfig || {
+        shuffleQuestions: false,
+        shuffleOptions: false,
+      },
     });
   } catch (error) {
     console.error('Error fetching quiz:', error);
@@ -219,6 +241,8 @@ router.post('/', requireAuth, requireRole(['admin', 'instructor']), validateQuiz
       endDate: quiz.endDate,
       createdAt: quiz.createdAt,
       updatedAt: quiz.updatedAt,
+      questionPoolConfig: quiz.questionPoolConfig,
+      shuffleConfig: quiz.shuffleConfig,
     });
   } catch (error) {
     console.error('Error creating quiz:', error);
@@ -259,6 +283,8 @@ router.put('/:id', requireAuth, requireRole(['admin', 'instructor']), validateQu
       endDate: quiz.endDate,
       createdAt: quiz.createdAt,
       updatedAt: quiz.updatedAt,
+      questionPoolConfig: quiz.questionPoolConfig,
+      shuffleConfig: quiz.shuffleConfig,
     });
   } catch (error) {
     console.error('Error updating quiz:', error);

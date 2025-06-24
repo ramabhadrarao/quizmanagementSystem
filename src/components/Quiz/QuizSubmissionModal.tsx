@@ -1,4 +1,4 @@
-// src/components/Quiz/QuizSubmissionModal.tsx
+// src/components/Quiz/QuizSubmissionModal.tsx - Fixed to handle selected questions
 import React, { useState } from 'react';
 import { CheckCircle, AlertTriangle, Clock, Code, FileText } from 'lucide-react';
 import Button from '../UI/Button';
@@ -24,6 +24,7 @@ const QuizSubmissionModal: React.FC<QuizSubmissionModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
+  // Count answered questions based on actual answers array
   const answeredQuestions = answers.filter(a => {
     if (a.type === 'multiple-choice') {
       return a.answer !== -1 && a.answer !== '';
@@ -32,6 +33,7 @@ const QuizSubmissionModal: React.FC<QuizSubmissionModalProps> = ({
     }
   }).length;
 
+  // Use the actual number of questions shown to the user
   const totalQuestions = quiz?.questions?.length || 0;
   const unansweredCount = totalQuestions - answeredQuestions;
 
@@ -40,6 +42,21 @@ const QuizSubmissionModal: React.FC<QuizSubmissionModalProps> = ({
     const remainingSeconds = seconds % 60;
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
+
+  // Get pool info if applicable
+  const getPoolInfo = () => {
+    if (!quiz.questionPoolConfig?.enabled) {
+      return null;
+    }
+
+    const originalTotal = quiz.originalQuestionCount || quiz.totalQuestions;
+    if (originalTotal && originalTotal > totalQuestions) {
+      return `${totalQuestions} questions selected from a pool of ${originalTotal}`;
+    }
+    return null;
+  };
+
+  const poolInfo = getPoolInfo();
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -61,6 +78,14 @@ const QuizSubmissionModal: React.FC<QuizSubmissionModalProps> = ({
           {/* Quiz Summary */}
           <div className="bg-gray-50 rounded-xl p-6 mb-6">
             <h3 className="font-semibold text-gray-900 mb-4">Quiz Summary</h3>
+            
+            {poolInfo && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                <p className="text-sm text-blue-800">
+                  📊 {poolInfo}
+                </p>
+              </div>
+            )}
             
             <div className="grid grid-cols-2 gap-4 mb-4">
               <div className="bg-white rounded-lg p-4">
@@ -150,6 +175,9 @@ const QuizSubmissionModal: React.FC<QuizSubmissionModalProps> = ({
                     <li>• Code questions will be automatically graded</li>
                     <li>• Results will be available after processing completes</li>
                     <li>• You cannot retake this quiz after submission</li>
+                    {quiz.questionPoolConfig?.enabled && (
+                      <li>• Each student receives a unique set of questions from the pool</li>
+                    )}
                   </ul>
                 </div>
               </div>

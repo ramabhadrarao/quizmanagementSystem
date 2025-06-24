@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Search, Filter, Eye, Edit, Trash2, Clock, FileText, CheckCircle, Lock, Key, Info } from 'lucide-react';
+import { Plus, Search, Filter, Eye, Edit, Trash2, Clock, FileText, CheckCircle, Lock, Key, Info, Layers, Shuffle } from 'lucide-react';
 import { useQuizStore } from '../../stores/quizStore';
 import { useAuthStore } from '../../stores/authStore';
 import Button from '../UI/Button';
@@ -21,6 +21,43 @@ const QuizList: React.FC = () => {
   useEffect(() => {
     fetchQuizzes();
   }, [fetchQuizzes]);
+
+  // Helper function to calculate actual question count based on pool configuration
+  const getActualQuestionCount = (quiz: any) => {
+    if (!quiz.questionPoolConfig?.enabled) {
+      return quiz.questions.length;
+    }
+
+    // Calculate actual questions from pool
+    const mcqCount = quiz.questions.filter((q: any) => q.type === 'multiple-choice').length;
+    const codeCount = quiz.questions.filter((q: any) => q.type === 'code').length;
+
+    const actualMcqCount = quiz.questionPoolConfig.multipleChoiceCount > 0 
+      ? Math.min(quiz.questionPoolConfig.multipleChoiceCount, mcqCount)
+      : mcqCount;
+
+    const actualCodeCount = quiz.questionPoolConfig.codeCount > 0
+      ? Math.min(quiz.questionPoolConfig.codeCount, codeCount)
+      : codeCount;
+
+    return actualMcqCount + actualCodeCount;
+  };
+
+  // Helper function to get pool info text
+  const getPoolInfoText = (quiz: any) => {
+    if (!quiz.questionPoolConfig?.enabled) {
+      return null;
+    }
+
+    const totalQuestions = quiz.questions.length;
+    const actualQuestions = getActualQuestionCount(quiz);
+
+    if (totalQuestions === actualQuestions) {
+      return null; // No selection happening
+    }
+
+    return `${actualQuestions} selected from ${totalQuestions}`;
+  };
 
   const filteredQuizzes = quizzes.filter((quiz) => {
     const matchesSearch = quiz.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -202,6 +239,8 @@ const QuizList: React.FC = () => {
           {filteredQuizzes.map((quiz) => {
             const userSubmission = quiz.userSubmission;
             const statusBadge = getStatusBadge(userSubmission);
+            const actualQuestionCount = getActualQuestionCount(quiz);
+            const poolInfo = getPoolInfoText(quiz);
             
             return (
               <div
@@ -278,13 +317,34 @@ const QuizList: React.FC = () => {
                 <div className="flex items-center gap-4 text-sm text-gray-500 mb-4">
                   <div className="flex items-center gap-1">
                     <FileText className="w-4 h-4" />
-                    <span>{quiz.questions.length} questions</span>
+                    <span>{actualQuestionCount} questions</span>
+                    {poolInfo && (
+                      <span className="text-xs text-blue-600 ml-1">({poolInfo})</span>
+                    )}
                   </div>
                   <div className="flex items-center gap-1">
                     <Clock className="w-4 h-4" />
                     <span>{quiz.timeLimit} min</span>
                   </div>
                 </div>
+
+                {/* Quiz Configuration Badges */}
+                {(quiz.questionPoolConfig?.enabled || quiz.shuffleConfig?.shuffleQuestions || quiz.shuffleConfig?.shuffleOptions) && (
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {quiz.questionPoolConfig?.enabled && (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full">
+                        <Layers className="w-3 h-3" />
+                        Question Pool
+                      </span>
+                    )}
+                    {(quiz.shuffleConfig?.shuffleQuestions || quiz.shuffleConfig?.shuffleOptions) && (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">
+                        <Shuffle className="w-3 h-3" />
+                        Randomized
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 {/* Status for Students */}
                 {user?.role === 'student' && userSubmission && (

@@ -1,4 +1,4 @@
-// server/src/routes/submissions.js - Updated with question selection and shuffling
+// server/src/routes/submissions.js - Fixed to include selected question IDs
 import express from 'express';
 import Submission from '../models/Submission.js';
 import Quiz from '../models/Quiz.js';
@@ -28,9 +28,27 @@ router.get('/:id', requireAuth, async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
     
+    // Get the questions that were actually shown to this user
+    let displayQuestions = submission.quiz.questions;
+    
+    // If questions were selected from a pool, filter to only selected ones
+    if (submission.selectedQuestionIds && submission.selectedQuestionIds.length > 0) {
+      displayQuestions = submission.quiz.questions.filter(q => 
+        submission.selectedQuestionIds.includes(q._id.toString())
+      );
+      
+      // Apply the stored shuffle order
+      if (submission.assignedQuestions && submission.assignedQuestions.length > 0) {
+        displayQuestions = applyShuffleOrder(displayQuestions, submission.assignedQuestions);
+      }
+    }
+    
     res.json({
       id: submission._id,
-      quiz: submission.quiz,
+      quiz: {
+        ...submission.quiz.toObject(),
+        questions: displayQuestions // Send only the questions that were shown to the user
+      },
       user: submission.user,
       answers: submission.answers,
       totalScore: submission.totalScore,
@@ -40,6 +58,7 @@ router.get('/:id', requireAuth, async (req, res) => {
       completedAt: submission.completedAt,
       status: submission.status,
       startedAt: submission.startedAt,
+      selectedQuestionIds: submission.selectedQuestionIds, // Include this for frontend
     });
   } catch (error) {
     console.error('Error fetching submission:', error);

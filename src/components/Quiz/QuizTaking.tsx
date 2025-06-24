@@ -1,4 +1,4 @@
-// src/components/Quiz/QuizTaking.tsx - Updated with question shuffling support
+// src/components/Quiz/QuizTaking.tsx - Fixed resume with selected questions
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Clock, CheckCircle, AlertCircle, Code, FileText, ArrowLeft, ArrowRight, Save, Wifi, WifiOff, Shuffle, Layers } from 'lucide-react';
@@ -119,10 +119,7 @@ const QuizTaking: React.FC = () => {
                 // Fetch quiz data
                 await fetchQuiz(id);
                 
-                // Start the quiz in resume mode
-                setQuizStarted(true);
-                setAnswers(submission.answers || []);
-                timeStartRef.current = Date.now();
+                // Don't start yet - we need to load the submission data properly
               } else {
                 // User chose not to resume, go back to quiz list
                 navigate('/quizzes');
@@ -263,9 +260,11 @@ const QuizTaking: React.FC = () => {
       
       // Store the shuffled questions from the server
       if (submission.questions) {
+        console.log('🔍 Received', submission.questions.length, 'questions from server');
         setQuizQuestions(submission.questions);
       } else {
         // Fallback to original questions if server doesn't send shuffled ones
+        console.log('🔍 No shuffled questions received, using original questions');
         setQuizQuestions(currentQuiz.questions);
       }
       
@@ -310,6 +309,43 @@ const QuizTaking: React.FC = () => {
         toast.error(error.response?.data?.message || 'Failed to start quiz');
         setError(error.response?.data?.message || 'Failed to start quiz');
       }
+    }
+  };
+
+  const resumeQuiz = async () => {
+    if (!submissionId || !currentQuiz) {
+      toast.error('Cannot resume quiz - missing data');
+      return;
+    }
+
+    try {
+      console.log('🔍 Resuming quiz with submission ID:', submissionId);
+      
+      // Start the quiz in resume mode - the server will return the same questions
+      const response = await api.post('/submissions/start', {
+        quizId: currentQuiz.id || currentQuiz._id,
+      });
+      
+      const { submission } = response.data;
+      
+      // Store the shuffled questions from the server
+      if (submission.questions) {
+        console.log('🔍 Received', submission.questions.length, 'questions from server for resume');
+        setQuizQuestions(submission.questions);
+      } else {
+        console.log('🔍 No shuffled questions received, using original questions');
+        setQuizQuestions(currentQuiz.questions);
+      }
+      
+      setQuizStarted(true);
+      setAnswers(submission.answers || []);
+      
+      timeStartRef.current = Date.now();
+      
+    } catch (error: any) {
+      console.error('🔍 Error resuming quiz:', error);
+      toast.error('Failed to resume quiz');
+      navigate('/quizzes');
     }
   };
 
@@ -435,6 +471,29 @@ const QuizTaking: React.FC = () => {
     };
   };
 
+  // Get actual question count based on pool configuration
+  const getActualQuestionCount = () => {
+    if (!currentQuiz) return 0;
+    
+    if (!currentQuiz.questionPoolConfig?.enabled) {
+      return currentQuiz.questions.length;
+    }
+
+    // Calculate actual questions from pool
+    const mcqCount = currentQuiz.questions.filter(q => q.type === 'multiple-choice').length;
+    const codeCount = currentQuiz.questions.filter(q => q.type === 'code').length;
+
+    const actualMcqCount = currentQuiz.questionPoolConfig.multipleChoiceCount > 0 
+      ? Math.min(currentQuiz.questionPoolConfig.multipleChoiceCount, mcqCount)
+      : mcqCount;
+
+    const actualCodeCount = currentQuiz.questionPoolConfig.codeCount > 0
+      ? Math.min(currentQuiz.questionPoolConfig.codeCount, codeCount)
+      : codeCount;
+
+    return actualMcqCount + actualCodeCount;
+  };
+
   // Loading state
   if (loading || checkingStatus) {
     return (
@@ -470,6 +529,7 @@ const QuizTaking: React.FC = () => {
   }
 
   const stats = getQuizStats();
+  const actualQuestionCount = getActualQuestionCount();
 
   // Quiz start screen
   if (!quizStarted) {
@@ -515,9 +575,19 @@ const QuizTaking: React.FC = () => {
                   <div className="bg-blue-50 rounded-lg p-4">
                     <FileText className="w-6 h-6 text-blue-600 mx-auto mb-2" />
                     <div className="text-2xl font-bold text-blue-900 mb-1">
-                      {currentQuiz.questions?.length || 0}
+                      {actualQuestionCount}
                     </div>
-                    <div className="text-sm text-blue-700">Total Questions</div>
+                    <div className="text-sm text-blue-700">
+                      {currentQuiz.questionPoolConfig?.enabled 
+                        ? `Selected Questions`
+                        : 'Total Questions'
+                      }
+                    </div>
+                    {currentQuiz.questionPoolConfig?.enabled && (
+                      <div className="text-xs text-blue-600 mt-1">
+                        from {currentQuiz.questions?.length || 0} total
+                      </div>
+                    )}
                   </div>
                   
                   <div className="bg-purple-50 rounded-lg p-4">
@@ -533,7 +603,7 @@ const QuizTaking: React.FC = () => {
                     <div className="text-2xl font-bold text-green-900 mb-1">
                       {currentQuiz.questions?.reduce((sum, q) => sum + (q.points || 0), 0) || 0}
                     </div>
-                    <div className="text-sm text-green-700">Points</div>
+                    <div className="text-sm text-green-700">Total Points</div>
                   </div>
                 </div>
 
@@ -541,7 +611,7 @@ const QuizTaking: React.FC = () => {
                 {(stats?.selectedFromPool || stats?.shuffled) && (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
                     <div className="flex items-center gap-2 text-blue-800 mb-2">
-                      {stats.selectedFromPool && <Pool className="w-4 h-4" />}
+                      {stats.selectedFromPool && <Layers className="w-4 h-4" />}
                       {stats.shuffled && <Shuffle className="w-4 h-4" />}
                       <span className="font-medium">Quiz Configuration</span>
                     </div>
@@ -575,7 +645,7 @@ const QuizTaking: React.FC = () => {
                     Back to Quizzes
                   </Button>
                   <Button
-                    onClick={startQuiz}
+                    onClick={isResuming ? resumeQuiz : startQuiz}
                     size="lg"
                   >
                     {isResuming ? 'Resume Quiz' : 'Start Quiz'}
@@ -591,6 +661,8 @@ const QuizTaking: React.FC = () => {
 
   // Use shuffled questions if available, otherwise fall back to original questions
   const questionsToDisplay = quizQuestions.length > 0 ? quizQuestions : currentQuiz.questions;
+  
+  console.log('🔍 Displaying', questionsToDisplay.length, 'questions');
   
   // Validate current question
   const currentQuestion = questionsToDisplay[currentQuestionIndex];
